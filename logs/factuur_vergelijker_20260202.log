@@ -1,0 +1,65 @@
+[2026-02-02 15:15:53] INFO - ======================================================================
+[2026-02-02 15:15:53] INFO - VERGELIJKING GESTART
+[2026-02-02 15:15:53] INFO - ----------------------------------------------------------------------
+[2026-02-02 15:15:53] INFO - Systeembestand: test_factuur.csv (2 regels)
+[2026-02-02 15:15:53] INFO - Leveranciersbestand: test_factuur_verschillen.csv (2 regels)
+[2026-02-02 15:15:53] INFO - Toleranties gebruikt:
+[2026-02-02 15:15:53] INFO -   - Prijs: €0.01
+[2026-02-02 15:15:53] INFO -   - Totaal: €0.02
+[2026-02-02 15:15:53] INFO -   - Aantal: 0.0
+[2026-02-02 15:15:53] INFO -   - BTW: 0.0%
+[2026-02-02 15:15:53] INFO - ----------------------------------------------------------------------
+[2026-02-02 15:15:53] INFO - VERGELIJKING AFGEROND
+[2026-02-02 15:15:53] INFO - Totaal regels verwerkt: 2
+[2026-02-02 15:15:53] INFO - Resultaten per status:
+[2026-02-02 15:15:53] INFO -   - OK: 0
+[2026-02-02 15:15:53] INFO -   - AFWIJKING: 2
+[2026-02-02 15:15:53] INFO -   - ONTBREEKT OP FACTUUR: 0
+[2026-02-02 15:15:53] INFO -   - ONTBREEKT IN SYSTEEM: 0
+[2026-02-02 15:15:53] INFO -   - GEDEELTELIJK: 0
+[2026-02-02 15:15:53] INFO -   - FOUT: 0
+[2026-02-02 15:15:53] INFO - Verwerkingstijd: 0.11 seconden
+[2026-02-02 15:15:53] INFO - ======================================================================
+[2026-02-02 15:22:34] INFO - ======================================================================
+[2026-02-02 15:22:34] INFO - VERGELIJKING GESTART
+[2026-02-02 15:22:34] INFO - ----------------------------------------------------------------------
+[2026-02-02 15:22:34] INFO - Systeembestand: test_leveranciersfactuur.csv (3 regels)
+[2026-02-02 15:22:34] INFO - Leveranciersbestand: test_systeemexport.csv (3 regels)
+[2026-02-02 15:22:34] INFO - Toleranties gebruikt:
+[2026-02-02 15:22:34] INFO -   - Prijs: €0.01
+[2026-02-02 15:22:34] INFO -   - Totaal: €0.02
+[2026-02-02 15:22:34] INFO -   - Aantal: 0.0
+[2026-02-02 15:22:34] INFO -   - BTW: 0.0%
+[2026-02-02 15:23:27] INFO - ======================================================================
+[2026-02-02 15:23:27] INFO - VERGELIJKING GESTART
+[2026-02-02 15:23:27] INFO - ----------------------------------------------------------------------
+[2026-02-02 15:23:27] INFO - Systeembestand: test_systeemexport.csv (3 regels)
+[2026-02-02 15:23:27] INFO - Leveranciersbestand: test_leveranciersfactuur.csv (3 regels)
+[2026-02-02 15:23:27] INFO - Toleranties gebruikt:
+[2026-02-02 15:23:27] INFO -   - Prijs: €0.01
+[2026-02-02 15:23:27] INFO -   - Totaal: €0.02
+[2026-02-02 15:23:27] INFO -   - Aantal: 0.0
+[2026-02-02 15:23:27] INFO -   - BTW: 0.0%
+[2026-02-02 15:29:15] INFO - ======================================================================
+[2026-02-02 15:29:15] INFO - VERGELIJKING GESTART
+[2026-02-02 15:29:15] INFO - ----------------------------------------------------------------------
+[2026-02-02 15:29:15] INFO - Systeembestand: test_systeemexport.csv (3 regels)
+[2026-02-02 15:29:15] INFO - Leveranciersbestand: test_leveranciersfactuur.csv (3 regels)
+[2026-02-02 15:29:15] INFO - Toleranties gebruikt:
+[2026-02-02 15:29:15] INFO -   - Prijs: €0.01
+[2026-02-02 15:29:15] INFO -   - Totaal: €0.02
+[2026-02-02 15:29:15] INFO -   - Aantal: 0.0
+[2026-02-02 15:29:15] INFO -   - BTW: 0.0%
+[2026-02-02 15:29:15] INFO - ----------------------------------------------------------------------
+[2026-02-02 15:29:15] INFO - VERGELIJKING AFGEROND
+[2026-02-02 15:29:15] INFO - Totaal regels verwerkt: 4
+[2026-02-02 15:29:15] INFO - Resultaten per status:
+[2026-02-02 15:29:15] INFO -   - OK: 0
+[2026-02-02 15:29:15] INFO -   - AFWIJKING: 2
+[2026-02-02 15:29:15] INFO -   - ONTBREEKT OP FACTUUR: 1
+[2026-02-02 15:29:15] INFO -   - ONTBREEKT IN SYSTEEM: 1
+[2026-02-02 15:29:15] INFO -   - GEDEELTELIJK: 0
+[2026-02-02 15:29:15] INFO -   - FOUT: 0
+[2026-02-02 15:29:15] INFO - Verwerkingstijd: 0.03 seconden
+[2026-02-02 15:29:15] INFO - Output bestand: vergelijking_test_systeemexport_vs_test_leveranciersfactuur_20260202_152915.xlsx
+[2026-02-02 15:29:15] INFO - ======================================================================
