@@ -44,9 +44,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialiseer logger (eenmalig)
+# Initialiseer logger (eenmalig) - FIX VOOR STREAMLIT CLOUD
 if 'logger' not in st.session_state:
-    st.session_state.logger = configureer_logger(Path('./logs'))
+    log_dir = Path(tempfile.gettempdir()) / 'factuurvergelijker_logs'
+    log_dir.mkdir(exist_ok=True)
+    st.session_state.logger = configureer_logger(log_dir)
 
 
 # ============================================================================
@@ -192,9 +194,10 @@ if vergelijk_knop:
             df_resultaat = vergelijk_facturen(df_systeem_norm, df_factuur_norm)
             samenvatting = genereer_samenvatting(df_resultaat)
         
-        # Excel genereren
+        # Excel genereren - FIX VOOR STREAMLIT CLOUD
         with st.spinner('Excel-rapport wordt gegenereerd...'):
-            output_dir = Path('./output')
+            output_dir = Path(tempfile.gettempdir()) / 'factuurvergelijker_output'
+            output_dir.mkdir(exist_ok=True)
             excel_pad = exporteer_naar_excel(
                 df_resultaat,
                 output_dir,

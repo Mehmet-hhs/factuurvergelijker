@@ -1,0 +1,86 @@
+# 📊 Factuurvergelijker - Gebruikershandleiding
+
+## 🌐 Toegang
+
+**Link:** https://jouw-app-url.streamlit.app
+
+Werkt in elke moderne browser (Chrome, Firefox, Safari, Edge).
+
+## 📖 Hoe te gebruiken
+
+### Stap 1: Bestanden voorbereiden
+- Zorg dat beide bestanden in CSV-formaat zijn
+- Systeemexport moet minimaal bevatten: artikelnaam, aantal, prijs, totaal
+- Leveranciersfactuur mag andere kolomnamen hebben (qty, price, etc.)
+
+### Stap 2: Uploaden
+1. Klik op "Upload uw systeemexport"
+2. Selecteer het CSV-bestand van uw systeem
+3. Klik op "Upload de leveranciersfactuur"
+4. Selecteer het CSV-bestand van de leverancier
+
+### Stap 3: Vergelijken
+1. Klik op de blauwe knop "🔍 Vergelijk facturen"
+2. Wacht terwijl de app de bestanden analyseert (5-30 seconden)
+3. De resultaten verschijnen automatisch
+
+### Stap 4: Resultaten bekijken
+- **Samenvatting:** Toont aantal OK, afwijkingen, ontbrekende regels
+- **Details tabel:** Eerste 100 regels met kleurcodering
+  - 🟢 Groen = OK
+  - 🟠 Oranje = Afwijking
+  - 🔴 Rood = Ontbreekt
+  - 🟡 Geel = Gedeeltelijk
+
+### Stap 5: Excel downloaden
+1. Scroll naar beneden naar "Download rapport"
+2. Klik op "⬇️ Download Excel-rapport"
+3. Open het bestand in Excel
+4. Bekijk de tabbladen "Samenvatting" en "Details"
+
+## ❓ Veelvoorkomende problemen
+
+### "Verplichte kolom ontbreekt"
+**Oplossing:** Controleer of uw CSV de volgende gegevens bevat:
+- Artikelnaam/omschrijving
+- Aantal
+- Prijs per stuk
+- Totaalbedrag
+
+### "Ongeldige data"
+**Oplossing:** Controleer of:
+- Prijzen en aantallen numeriek zijn (geen letters)
+- Er geen volledig lege regels zijn
+- Het bestand correct is opgeslagen als CSV
+
+### App reageert niet
+**Oplossing:** 
+- Ververs de pagina (F5)
+- Upload de bestanden opnieuw
+- Bij aanhoudende problemen: neem contact op
+
+## 🔒 Privacy & Beveiliging
+
+- Geüploade bestanden worden NIET permanent opgeslagen
+- Na het downloaden van het rapport worden bestanden verwijderd
+- Audit logs bevatten GEEN bedragen of artikelgegevens
+- Verbinding is beveiligd met HTTPS
+
+## 📧 Support
+
+Bij vragen of problemen:
+- Email: [jouw email]
+- Tel: [jouw telefoonnummer]
+
+## 🔄 Verwachte verwerkingstijd
+
+| Aantal regels | Verwachte tijd |
+|---------------|----------------|
+| 1-100         | 5-10 seconden  |
+| 100-1000      | 10-30 seconden |
+| 1000+         | 30-60 seconden |
+
+---
+
+**Laatste update:** 2 februari 2026
+**Versie:** 1.0
