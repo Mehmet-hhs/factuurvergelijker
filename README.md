@@ -1,6 +1,5 @@
 # Factuurvergelijker
 
-## Status: Fase 2 voltooid ✅
 
 ### Projectoverzicht
 Dit systeem vergelijkt systeemexporten met leveranciersfacturen op basis van deterministische regels.
@@ -18,7 +17,7 @@ Dit systeem vergelijkt systeemexporten met leveranciersfacturen op basis van det
 ### Documentatie
 Zie `/docs` map voor gedetailleerde specificaties.
 
-### Installatie (later, na Fase 3)
+### Installatie 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
