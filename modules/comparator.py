@@ -511,7 +511,7 @@ def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
     if 'status' not in df.columns:
         return df
     
-    # ✅ Gebruik de ECHTE status waarden uit config.py
+    # Gebruik de ECHTE status waarden uit config.py
     status_priority = {
         config.STATUS_AFWIJKING: 0,
         config.STATUS_ONTBREEKT_FACTUUR: 1,
@@ -522,7 +522,10 @@ def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
     
     df_sorted = df.copy()
     df_sorted['_sort_priority'] = df_sorted['status'].map(status_priority)
-    df_sorted = df_sorted.sort_values('_sort_priority', na_last=True)
+    
+    # ✅ CORRECTE PARAMETER: na_position='last' (niet na_last=True)
+    df_sorted = df_sorted.sort_values('_sort_priority', na_position='last')
+    
     df_sorted = df_sorted.drop(columns=['_sort_priority'])
     df_sorted = df_sorted.reset_index(drop=True)
     
