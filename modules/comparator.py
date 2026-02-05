@@ -486,3 +486,61 @@ def vergelijk_numeriek(
             )
     
     return None
+
+
+def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sort comparison results by status priority.
+    
+    Priority order (most important first):
+    1. AFWIJKING
+    2. ONTBREEKT_OP_FACTUUR
+    3. ONTBREEKT_IN_SYSTEEM
+    4. GEDEELTELIJK
+    5. OK
+    
+    Args:
+        df: DataFrame with comparison results containing 'status' column
+        
+    Returns:
+        DataFrame sorted by status priority (original data unchanged)
+    """
+    if df.empty:
+        return df
+    
+    if 'status' not in df.columns:
+        # Geen status kolom? Return as-is (defensive)
+        return df
+    
+    status_priority = {
+        'AFWIJKING': 0,
+        'ONTBREEKT_OP_FACTUUR': 1,
+        'ONTBREEKT_IN_SYSTEEM': 2,
+        'GEDEELTELIJK': 3,
+        'OK': 4,
+    }
+    
+    df_sorted = df.copy()
+    df_sorted['_sort_priority'] = df_sorted['status'].map(status_priority)
+    df_sorted = df_sorted.sort_values('_sort_priority', na_last=True)
+    df_sorted = df_sorted.drop(columns=['_sort_priority'])
+    df_sorted = df_sorted.reset_index(drop=True)
+    
+    return df_sorted
+
+
+def compare(df_source_a: pd.DataFrame, df_source_b: pd.DataFrame, 
+            config: dict = None) -> pd.DataFrame:
+    """
+    [... bestaande docstring ...]
+    """
+    
+    # [... alle bestaande code ...]
+    
+    # Bouw results DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # ✨ NIEUW: Sorteer op status prioriteit
+    results_df = _sort_by_status_priority(results_df)
+    
+    return results_df
