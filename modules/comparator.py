@@ -494,8 +494,8 @@ def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
     
     Priority order (most important first):
     1. AFWIJKING
-    2. ONTBREEKT_OP_FACTUUR
-    3. ONTBREEKT_IN_SYSTEEM
+    2. ONTBREEKT OP FACTUUR
+    3. ONTBREEKT IN SYSTEEM  
     4. GEDEELTELIJK
     5. OK
     
@@ -509,15 +509,15 @@ def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
         return df
     
     if 'status' not in df.columns:
-        # Geen status kolom? Return as-is (defensive)
         return df
     
+    # ✅ Gebruik de ECHTE status waarden uit config.py
     status_priority = {
-        'AFWIJKING': 0,
-        'ONTBREEKT_OP_FACTUUR': 1,
-        'ONTBREEKT_IN_SYSTEEM': 2,
-        'GEDEELTELIJK': 3,
-        'OK': 4,
+        config.STATUS_AFWIJKING: 0,
+        config.STATUS_ONTBREEKT_FACTUUR: 1,
+        config.STATUS_ONTBREEKT_SYSTEEM: 2,
+        config.STATUS_GEDEELTELIJK: 3,
+        config.STATUS_OK: 4,
     }
     
     df_sorted = df.copy()
@@ -529,18 +529,71 @@ def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
     return df_sorted
 
 
-def compare(df_source_a: pd.DataFrame, df_source_b: pd.DataFrame, 
-            config: dict = None) -> pd.DataFrame:
+def vergelijk_facturen(df_systeem: pd.DataFrame, df_factuur: pd.DataFrame) -> pd.DataFrame:
     """
-    [... bestaande docstring ...]
+    Hoofdfunctie: vergelijkt systeemexport met leveranciersfactuur.
+    
+    [... rest van docstring blijft ...]
     """
     
-    # [... alle bestaande code ...]
+    # Stap 1: Match regels
+    matches = match_regels(df_systeem, df_factuur)
     
-    # Bouw results DataFrame
-    results_df = pd.DataFrame(results)
+    # Stap 2: Bouw resultaten lijst
+    resultaten = []
+    
+    # Verwerk gematchte regels
+    for systeem_idx, factuur_idx in matches['gematchte_regels']:
+        systeem_row = df_systeem.iloc[systeem_idx]
+        factuur_row = df_factuur.iloc[factuur_idx]
+        
+        resultaat = vergelijk_regel(systeem_row, factuur_row)
+        resultaten.append(resultaat)
+    
+    # Verwerk niet-gematchte systeemregels
+    for systeem_idx in matches['systeem_zonder_match']:
+        systeem_row = df_systeem.iloc[systeem_idx]
+        
+        resultaat = {
+            'status': config.STATUS_ONTBREEKT_FACTUUR,
+            'artikelcode': systeem_row[config.CANON_ARTIKELCODE],
+            'artikelnaam': systeem_row[config.CANON_ARTIKELNAAM],
+            'aantal_systeem': systeem_row[config.CANON_AANTAL],
+            'aantal_factuur': None,
+            'prijs_systeem': systeem_row[config.CANON_PRIJS],
+            'prijs_factuur': None,
+            'totaal_systeem': systeem_row[config.CANON_TOTAAL],
+            'totaal_factuur': None,
+            'btw_systeem': systeem_row[config.CANON_BTW],
+            'btw_factuur': None,
+            'afwijking_toelichting': 'Regel staat in systeem maar niet op factuur'
+        }
+        resultaten.append(resultaat)
+    
+    # Verwerk niet-gematchte factuurregels
+    for factuur_idx in matches['factuur_zonder_match']:
+        factuur_row = df_factuur.iloc[factuur_idx]
+        
+        resultaat = {
+            'status': config.STATUS_ONTBREEKT_SYSTEEM,
+            'artikelcode': factuur_row[config.CANON_ARTIKELCODE],
+            'artikelnaam': factuur_row[config.CANON_ARTIKELNAAM],
+            'aantal_systeem': None,
+            'aantal_factuur': factuur_row[config.CANON_AANTAL],
+            'prijs_systeem': None,
+            'prijs_factuur': factuur_row[config.CANON_PRIJS],
+            'totaal_systeem': None,
+            'totaal_factuur': factuur_row[config.CANON_TOTAAL],
+            'btw_systeem': None,
+            'btw_factuur': factuur_row[config.CANON_BTW],
+            'afwijking_toelichting': 'Regel staat op factuur maar niet in systeem'
+        }
+        resultaten.append(resultaat)
+    
+    # Converteer naar DataFrame
+    df_resultaat = pd.DataFrame(resultaten)
     
     # ✨ NIEUW: Sorteer op status prioriteit
-    results_df = _sort_by_status_priority(results_df)
+    df_resultaat = _sort_by_status_priority(df_resultaat)
     
-    return results_df
+    return df_resultaat  

@@ -33,23 +33,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-# Bovenaan reporter.py, na imports
-from src.comparator import _sort_by_status_priority
-
-def generate_report(comparison_results: pd.DataFrame, 
-                   output_path: str,
-                   config: dict = None) -> str:
-    """
-    Generate Excel report from comparison results.
-    
-    [... bestaande docstring ...]
-    """
-    
-    # ✨ NIEUW: Zorg dat data gesorteerd is (idempotent)
-    comparison_results = _sort_by_status_priority(comparison_results)
-    
-    # [... rest van bestaande code blijft ongewijzigd ...]
-
 def genereer_samenvatting(df_resultaat: pd.DataFrame) -> Dict:
     """
     Genereert samenvattende statistieken van het vergelijkingsresultaat.
