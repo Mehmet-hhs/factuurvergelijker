@@ -33,63 +33,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
-    """
-    Schrijft detailgegevens naar Excel sheet met opmaak.
-    """
-    
-    # ✨ DEBUG: Print aantal rijen
-    print(f"📊 _schrijf_details_sheet: {len(df_resultaat)} rijen te schrijven")
-    
-    # Schrijf DataFrame naar sheet
-    for r_idx, row in enumerate(dataframe_to_rows(df_resultaat, index=False, header=True), 1):
-        for c_idx, value in enumerate(row, 1):
-            cell = worksheet.cell(row=r_idx, column=c_idx, value=value)
-            
-            # Header styling
-            if r_idx == 1:
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
-                cell.alignment = Alignment(horizontal='center')
-    
-    # ✨ DEBUG: Print status kolom index
-    status_col_idx = df_resultaat.columns.get_loc('status') + 1
-    print(f"🎨 Status kolom index: {status_col_idx}")
-    
-    # Kleurcodering voor status kolom
-    aantal_gekleurd = 0
-    for rij_idx in range(2, len(df_resultaat) + 2):  # Start na header
-        status_cell = worksheet.cell(row=rij_idx, column=status_col_idx)
-        status_waarde = status_cell.value
-        
-        # ✨ DEBUG: Print eerste 5 statussen
-        if rij_idx <= 6:
-            print(f"   Rij {rij_idx}: status = '{status_waarde}'")
-        
-        if status_waarde == config.STATUS_OK:
-            status_cell.fill = _get_fill_color('green')
-            aantal_gekleurd += 1
-        elif status_waarde == config.STATUS_AFWIJKING:
-            status_cell.fill = _get_fill_color('orange')
-            aantal_gekleurd += 1
-        elif status_waarde in [config.STATUS_ONTBREEKT_FACTUUR, config.STATUS_ONTBREEKT_SYSTEEM]:
-            status_cell.fill = _get_fill_color('red')
-            aantal_gekleurd += 1
-        elif status_waarde == config.STATUS_GEDEELTELIJK:
-            status_cell.fill = _get_fill_color('yellow')
-            aantal_gekleurd += 1
-        elif status_waarde == config.STATUS_FOUT:
-            status_cell.fill = _get_fill_color('gray')
-            aantal_gekleurd += 1
-    
-    # ✨ DEBUG: Print totaal gekleurd
-    print(f"✅ Aantal cellen gekleurd: {aantal_gekleurd}/{len(df_resultaat)}")
-    
-    # Autofilter toevoegen
-    worksheet.auto_filter.ref = worksheet.dimensions
-    
-    # ... rest van de code ...
-
 def genereer_samenvatting(df_resultaat: pd.DataFrame) -> Dict:
     """
     Genereert samenvattende statistieken van het vergelijkingsresultaat.
@@ -159,7 +102,7 @@ def exporteer_naar_excel(
 ) -> Path:
     """
     Exporteert resultaten naar Excel met 2 tabbladen en kleurcodering.
-    
+
     Parameters
     ----------
     df_resultaat : pd.DataFrame
@@ -170,12 +113,12 @@ def exporteer_naar_excel(
         Naam van systeemexport (voor in bestandsnaam).
     bestandsnaam_factuur : str
         Naam van leveranciersfactuur (voor in bestandsnaam).
-    
+
     Returns
     -------
     Path
         Volledig pad naar gegenereerd Excel-bestand.
-    
+
     Voorbeelden
     -----------
     >>> pad = exporteer_naar_excel(
@@ -187,7 +130,14 @@ def exporteer_naar_excel(
     >>> print(pad)
     ./output/vergelijking_export_jan_vs_factuur_leverancier_A_20240215_143022.xlsx
     """
-    
+
+    # ✨ DEBUG: Print ontvangen data
+    print(f"\n{'='*60}")
+    print(f"📥 REPORTER.exporteer_naar_excel() ONTVANGEN:")
+    print(f"   Aantal rijen: {len(df_resultaat)}")
+    print(f"   Shape: {df_resultaat.shape}")
+    print(f"{'='*60}\n")
+
     # Genereer bestandsnaam met timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     bestandsnaam = f"vergelijking_{bestandsnaam_systeem}_vs_{bestandsnaam_factuur}_{timestamp}.xlsx"
@@ -278,7 +228,7 @@ def _schrijf_samenvatting_sheet(worksheet, samenvatting: Dict):
 def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
     """
     Schrijft detailgegevens naar Excel sheet met opmaak.
-    
+
     Parameters
     ----------
     worksheet : openpyxl.worksheet.worksheet.Worksheet
@@ -286,35 +236,57 @@ def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
     df_resultaat : pd.DataFrame
         Resultaat-DataFrame met alle details.
     """
-    
+
+    # ✨ DEBUG: Print aantal rijen
+    print(f"📊 _schrijf_details_sheet ONTVANGEN: {len(df_resultaat)} rijen")
+    print(f"   DataFrame shape: {df_resultaat.shape}")
+    print(f"   Kolommen: {list(df_resultaat.columns)}")
+
     # Schrijf DataFrame naar sheet
+    rijen_geschreven = 0
     for r_idx, row in enumerate(dataframe_to_rows(df_resultaat, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
             cell = worksheet.cell(row=r_idx, column=c_idx, value=value)
-            
+
             # Header styling
             if r_idx == 1:
                 cell.font = Font(bold=True)
                 cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
                 cell.alignment = Alignment(horizontal='center')
-    
-    # Kleurcodering voor status kolom (kolom A)
+        rijen_geschreven = r_idx
+
+    print(f"📝 Aantal rijen GESCHREVEN naar Excel: {rijen_geschreven} (inclusief header)")
+
+    # Kleurcodering voor status kolom
     status_col_idx = df_resultaat.columns.get_loc('status') + 1
-    
+    print(f"🎨 Status kolom index: {status_col_idx}")
+
+    aantal_gekleurd = 0
     for rij_idx in range(2, len(df_resultaat) + 2):  # Start na header
         status_cell = worksheet.cell(row=rij_idx, column=status_col_idx)
         status_waarde = status_cell.value
-        
+
+        # ✨ DEBUG: Print eerste 3 en laatste 3 statussen
+        if rij_idx <= 4 or rij_idx >= len(df_resultaat) - 1:
+            print(f"   Rij {rij_idx}: status = '{status_waarde}'")
+
         if status_waarde == config.STATUS_OK:
             status_cell.fill = _get_fill_color('green')
+            aantal_gekleurd += 1
         elif status_waarde == config.STATUS_AFWIJKING:
             status_cell.fill = _get_fill_color('orange')
+            aantal_gekleurd += 1
         elif status_waarde in [config.STATUS_ONTBREEKT_FACTUUR, config.STATUS_ONTBREEKT_SYSTEEM]:
             status_cell.fill = _get_fill_color('red')
+            aantal_gekleurd += 1
         elif status_waarde == config.STATUS_GEDEELTELIJK:
             status_cell.fill = _get_fill_color('yellow')
+            aantal_gekleurd += 1
         elif status_waarde == config.STATUS_FOUT:
             status_cell.fill = _get_fill_color('gray')
+            aantal_gekleurd += 1
+
+    print(f"✅ Aantal cellen GEKLEURD: {aantal_gekleurd} van {len(df_resultaat)}")
     
     # Autofilter toevoegen
     worksheet.auto_filter.ref = worksheet.dimensions

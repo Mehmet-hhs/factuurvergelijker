@@ -193,11 +193,19 @@ if vergelijk_knop:
         with st.spinner('Facturen worden vergeleken...'):
             df_resultaat = vergelijk_facturen(df_systeem_norm, df_factuur_norm)
             samenvatting = genereer_samenvatting(df_resultaat)
-        
+
+            # ✨ DEBUG: Controleer aantal rijen
+            print(f"🔍 APP.PY: Vergelijking compleet - {len(df_resultaat)} rijen in resultaat")
+            print(f"   Shape: {df_resultaat.shape}")
+
         # Excel genereren - FIX VOOR STREAMLIT CLOUD
         with st.spinner('Excel-rapport wordt gegenereerd...'):
             output_dir = Path(tempfile.gettempdir()) / 'factuurvergelijker_output'
             output_dir.mkdir(exist_ok=True)
+
+            # ✨ DEBUG: Bevestig dat volledige DataFrame wordt doorgegeven
+            print(f"📤 APP.PY: Stuur {len(df_resultaat)} rijen naar exporteer_naar_excel()")
+
             excel_pad = exporteer_naar_excel(
                 df_resultaat,
                 output_dir,
