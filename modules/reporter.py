@@ -131,12 +131,18 @@ def exporteer_naar_excel(
     ./output/vergelijking_export_jan_vs_factuur_leverancier_A_20240215_143022.xlsx
     """
 
-    # ✨ DEBUG: Print ontvangen data
-    print(f"\n{'='*60}")
-    print(f"📥 REPORTER.exporteer_naar_excel() ONTVANGEN:")
-    print(f"   Aantal rijen: {len(df_resultaat)}")
-    print(f"   Shape: {df_resultaat.shape}")
-    print(f"{'='*60}\n")
+    # ✨ DEBUG: Schrijf naar bestand
+    import sys
+    debug_msg = f"\n{'='*60}\n"
+    debug_msg += f"📥 REPORTER.exporteer_naar_excel() ONTVANGEN:\n"
+    debug_msg += f"   Aantal rijen: {len(df_resultaat)}\n"
+    debug_msg += f"   Shape: {df_resultaat.shape}\n"
+    debug_msg += f"{'='*60}\n"
+
+    with open('/tmp/excel_debug.log', 'a') as f:
+        f.write(debug_msg)
+    sys.stdout.write(debug_msg)
+    sys.stdout.flush()
 
     # Genereer bestandsnaam met timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -237,10 +243,16 @@ def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
         Resultaat-DataFrame met alle details.
     """
 
-    # ✨ DEBUG: Print aantal rijen
-    print(f"📊 _schrijf_details_sheet ONTVANGEN: {len(df_resultaat)} rijen")
-    print(f"   DataFrame shape: {df_resultaat.shape}")
-    print(f"   Kolommen: {list(df_resultaat.columns)}")
+    # ✨ DEBUG: Schrijf naar bestand
+    import sys
+    debug_msg = f"📊 _schrijf_details_sheet ONTVANGEN: {len(df_resultaat)} rijen\n"
+    debug_msg += f"   DataFrame shape: {df_resultaat.shape}\n"
+    debug_msg += f"   Kolommen: {list(df_resultaat.columns)}\n"
+
+    with open('/tmp/excel_debug.log', 'a') as f:
+        f.write(debug_msg)
+    sys.stdout.write(debug_msg)
+    sys.stdout.flush()
 
     # Schrijf DataFrame naar sheet
     rijen_geschreven = 0
@@ -255,11 +267,19 @@ def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
                 cell.alignment = Alignment(horizontal='center')
         rijen_geschreven = r_idx
 
-    print(f"📝 Aantal rijen GESCHREVEN naar Excel: {rijen_geschreven} (inclusief header)")
+    debug_msg = f"📝 Aantal rijen GESCHREVEN naar Excel: {rijen_geschreven} (inclusief header)\n"
+    with open('/tmp/excel_debug.log', 'a') as f:
+        f.write(debug_msg)
+    sys.stdout.write(debug_msg)
+    sys.stdout.flush()
 
     # Kleurcodering voor status kolom
     status_col_idx = df_resultaat.columns.get_loc('status') + 1
-    print(f"🎨 Status kolom index: {status_col_idx}")
+    debug_msg = f"🎨 Status kolom index: {status_col_idx}\n"
+    with open('/tmp/excel_debug.log', 'a') as f:
+        f.write(debug_msg)
+    sys.stdout.write(debug_msg)
+    sys.stdout.flush()
 
     aantal_gekleurd = 0
     for rij_idx in range(2, len(df_resultaat) + 2):  # Start na header
@@ -268,7 +288,9 @@ def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
 
         # ✨ DEBUG: Print eerste 3 en laatste 3 statussen
         if rij_idx <= 4 or rij_idx >= len(df_resultaat) - 1:
-            print(f"   Rij {rij_idx}: status = '{status_waarde}'")
+            debug_msg = f"   Rij {rij_idx}: status = '{status_waarde}'\n"
+            with open('/tmp/excel_debug.log', 'a') as f:
+                f.write(debug_msg)
 
         if status_waarde == config.STATUS_OK:
             status_cell.fill = _get_fill_color('green')
@@ -286,7 +308,11 @@ def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
             status_cell.fill = _get_fill_color('gray')
             aantal_gekleurd += 1
 
-    print(f"✅ Aantal cellen GEKLEURD: {aantal_gekleurd} van {len(df_resultaat)}")
+    debug_msg = f"✅ Aantal cellen GEKLEURD: {aantal_gekleurd} van {len(df_resultaat)}\n"
+    with open('/tmp/excel_debug.log', 'a') as f:
+        f.write(debug_msg)
+    sys.stdout.write(debug_msg)
+    sys.stdout.flush()
     
     # Autofilter toevoegen
     worksheet.auto_filter.ref = worksheet.dimensions

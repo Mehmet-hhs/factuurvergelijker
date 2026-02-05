@@ -195,8 +195,13 @@ if vergelijk_knop:
             samenvatting = genereer_samenvatting(df_resultaat)
 
             # ✨ DEBUG: Controleer aantal rijen
-            print(f"🔍 APP.PY: Vergelijking compleet - {len(df_resultaat)} rijen in resultaat")
-            print(f"   Shape: {df_resultaat.shape}")
+            import sys
+            debug_msg = f"🔍 APP.PY: Vergelijking compleet - {len(df_resultaat)} rijen in resultaat\n"
+            debug_msg += f"   Shape: {df_resultaat.shape}\n"
+            with open('/tmp/excel_debug.log', 'a') as f:
+                f.write(debug_msg)
+            sys.stdout.write(debug_msg)
+            sys.stdout.flush()
 
         # Excel genereren - FIX VOOR STREAMLIT CLOUD
         with st.spinner('Excel-rapport wordt gegenereerd...'):
@@ -204,7 +209,11 @@ if vergelijk_knop:
             output_dir.mkdir(exist_ok=True)
 
             # ✨ DEBUG: Bevestig dat volledige DataFrame wordt doorgegeven
-            print(f"📤 APP.PY: Stuur {len(df_resultaat)} rijen naar exporteer_naar_excel()")
+            debug_msg = f"📤 APP.PY: Stuur {len(df_resultaat)} rijen naar exporteer_naar_excel()\n"
+            with open('/tmp/excel_debug.log', 'a') as f:
+                f.write(debug_msg)
+            sys.stdout.write(debug_msg)
+            sys.stdout.flush()
 
             excel_pad = exporteer_naar_excel(
                 df_resultaat,
