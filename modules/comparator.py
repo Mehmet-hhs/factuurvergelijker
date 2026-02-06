@@ -125,7 +125,10 @@ def vergelijk_facturen(df_systeem: pd.DataFrame, df_factuur: pd.DataFrame) -> pd
     
     # Converteer naar DataFrame
     df_resultaat = pd.DataFrame(resultaten)
-    
+
+    # Sorteer op status prioriteit (afwijkingen bovenaan)
+    df_resultaat = _sort_by_status_priority(df_resultaat)
+
     return df_resultaat
 
 
@@ -269,40 +272,93 @@ def normaliseer_naam(naam: str) -> str:
     return genormaliseerd
 
 
+def bereken_effectieve_prijs(aantal: float, totaal: float, prijs_per_stuk: float = None) -> float:
+    """
+    Bepaalt de enige prijs die relevant is voor vergelijking:
+    de uiteindelijke betaalde prijs per artikel.
+
+    Deze functie is de ENIGE BRON VAN WAARHEID voor prijsbepaling.
+
+    Logica:
+    1. Als prijs_per_stuk expliciet bekend is → gebruik die
+    2. Anders: bereken uit totaal / aantal (indien mogelijk)
+    3. Anders: None (niet vergelijkbaar)
+
+    Parameters
+    ----------
+    aantal : float
+        Aantal artikelen.
+    totaal : float
+        Totaalbedrag voor deze regel.
+    prijs_per_stuk : float, optional
+        Expliciete prijs per stuk (indien aanwezig).
+
+    Returns
+    -------
+    float or None
+        Effectieve prijs per stuk, of None indien niet bepaalbaar.
+
+    Voorbeelden
+    -----------
+    >>> bereken_effectieve_prijs(10, 100, prijs_per_stuk=10.0)
+    10.0
+    >>> bereken_effectieve_prijs(10, 100, prijs_per_stuk=None)
+    10.0
+    >>> bereken_effectieve_prijs(10, None, prijs_per_stuk=None)
+    None
+    """
+    # Prioriteit 1: Expliciet opgegeven prijs per stuk
+    if pd.notna(prijs_per_stuk) and prijs_per_stuk is not None:
+        return float(prijs_per_stuk)
+
+    # Prioriteit 2: Bereken uit totaal / aantal
+    if pd.notna(aantal) and pd.notna(totaal) and aantal > 0:
+        return float(totaal) / float(aantal)
+
+    # Kan niet bepaald worden
+    return None
+
+
 def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
     """
     Vergelijkt één systeemregel met één factuurregel.
-    
+
+    NIEUWE BUSINESS REGEL (v1.3 - Business Logic Correctie):
+    ========================================================
+    Een artikel mag ALLEEN als "AFWIJKING" worden gemarkeerd als:
+    1. Het aantal verschilt (buiten tolerantie), OF
+    2. De uiteindelijke betaalde prijs per artikel verschilt (buiten tolerantie)
+
+    NIETS ANDERS mag een afwijking veroorzaken.
+
+    Velden zoals bruto_prijs, netto_prijs, korting, staffel, BTW, totaalbedrag
+    zijn INFORMATIEF maar mogen NOOIT zelfstandig een afwijking triggeren.
+
+    Dit voorkomt valse afwijkingen door verschillende prijsopbouwen tussen leveranciers.
+
     Parameters
     ----------
     systeem_row : pd.Series
         Regel uit systeemexport.
     factuur_row : pd.Series
         Regel uit leveranciersfactuur.
-    
+
     Returns
     -------
     dict
         Resultaat met status, waarden en toelichting.
     """
-    
+
     afwijkingen = []
-    alle_velden_vergelijkbaar = True
-    
-    # Vergelijk artikelnaam
-    naam_afwijking = vergelijk_tekstveld(
-        systeem_row[config.CANON_ARTIKELNAAM],
-        factuur_row[config.CANON_ARTIKELNAAM],
-        'artikelnaam'
-    )
-    if naam_afwijking:
-        afwijkingen.append(naam_afwijking)
-    
-    # Vergelijk aantal
+
+    # =========================================================================
+    # STAP 1: VERGELIJK AANTAL (ENIGE CRITERIUM 1)
+    # =========================================================================
     aantal_sys = systeem_row[config.CANON_AANTAL]
     aantal_fac = factuur_row[config.CANON_AANTAL]
-    
-    if pd.notna(aantal_sys) and pd.notna(aantal_fac):
+    aantal_vergelijkbaar = pd.notna(aantal_sys) and pd.notna(aantal_fac)
+
+    if aantal_vergelijkbaar:
         aantal_afwijking = vergelijk_numeriek(
             aantal_sys,
             aantal_fac,
@@ -311,14 +367,25 @@ def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
         )
         if aantal_afwijking:
             afwijkingen.append(aantal_afwijking)
-    else:
-        alle_velden_vergelijkbaar = False
-    
-    # Vergelijk prijs
-    prijs_sys = systeem_row[config.CANON_PRIJS]
-    prijs_fac = factuur_row[config.CANON_PRIJS]
-    
-    if pd.notna(prijs_sys) and pd.notna(prijs_fac):
+
+    # =========================================================================
+    # STAP 2: VERGELIJK EFFECTIEVE PRIJS (ENIGE CRITERIUM 2)
+    # =========================================================================
+    # Bepaal effectieve prijs per kant (uiteindelijke betaalde prijs)
+    prijs_sys = bereken_effectieve_prijs(
+        aantal_sys,
+        systeem_row[config.CANON_TOTAAL],
+        systeem_row[config.CANON_PRIJS]
+    )
+    prijs_fac = bereken_effectieve_prijs(
+        aantal_fac,
+        factuur_row[config.CANON_TOTAAL],
+        factuur_row[config.CANON_PRIJS]
+    )
+
+    prijs_vergelijkbaar = (prijs_sys is not None) and (prijs_fac is not None)
+
+    if prijs_vergelijkbaar:
         prijs_afwijking = vergelijk_numeriek(
             prijs_sys,
             prijs_fac,
@@ -328,74 +395,55 @@ def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
         )
         if prijs_afwijking:
             afwijkingen.append(prijs_afwijking)
-    else:
-        alle_velden_vergelijkbaar = False
-    
-    # Vergelijk totaal
-    totaal_sys = systeem_row[config.CANON_TOTAAL]
-    totaal_fac = factuur_row[config.CANON_TOTAAL]
-    
-    if pd.notna(totaal_sys) and pd.notna(totaal_fac):
-        totaal_afwijking = vergelijk_numeriek(
-            totaal_sys,
-            totaal_fac,
-            config.TOLERANTIE_TOTAAL,
-            'totaalbedrag',
-            is_bedrag=True
-        )
-        if totaal_afwijking:
-            afwijkingen.append(totaal_afwijking)
-    else:
-        alle_velden_vergelijkbaar = False
-    
-    # Vergelijk BTW (optioneel)
-    btw_sys = systeem_row[config.CANON_BTW]
-    btw_fac = factuur_row[config.CANON_BTW]
-    
-    if pd.notna(btw_sys) and pd.notna(btw_fac):
-        btw_afwijking = vergelijk_numeriek(
-            btw_sys,
-            btw_fac,
-            config.TOLERANTIE_BTW,
-            'BTW-percentage',
-            is_percentage=True
-        )
-        if btw_afwijking:
-            afwijkingen.append(btw_afwijking)
-    # BTW is optioneel, dus niet meenemen in 'alle_velden_vergelijkbaar'
-    
-    # Bepaal status
+
+    # =========================================================================
+    # STAP 3: BEPAAL STATUS (ALLEEN OP BASIS VAN AANTAL EN PRIJS)
+    # =========================================================================
     if afwijkingen:
         status = config.STATUS_AFWIJKING
-    elif not alle_velden_vergelijkbaar:
+    elif not aantal_vergelijkbaar or not prijs_vergelijkbaar:
+        # Indien aantal of prijs niet vergelijkbaar → gedeeltelijk
         status = config.STATUS_GEDEELTELIJK
     else:
+        # Aantal en prijs kloppen → OK
         status = config.STATUS_OK
-    
-    # Bouw toelichting
+
+    # =========================================================================
+    # STAP 4: BOUW TOELICHTING (SPECIFIEK EN VERKLAARBAAR)
+    # =========================================================================
     if afwijkingen:
+        # Specifieke afwijking: "Aantal wijkt af: ...", "Prijs per stuk wijkt af: ..."
         toelichting = '; '.join(afwijkingen)
-    elif not alle_velden_vergelijkbaar:
-        toelichting = 'Niet alle velden waren vergelijkbaar'
+    elif not aantal_vergelijkbaar:
+        toelichting = 'Aantal kon niet worden vergeleken (ontbrekende data)'
+    elif not prijs_vergelijkbaar:
+        toelichting = 'Prijs per stuk kon niet worden bepaald (ontbrekende data)'
     else:
-        toelichting = 'Alle velden komen overeen'
-    
-    # Bouw resultaat
+        # Alles OK
+        toelichting = 'Aantal en prijs komen overeen'
+
+    # =========================================================================
+    # STAP 5: BOUW RESULTAAT
+    # =========================================================================
+    # Bepaal welke prijs we tonen (kan berekend zijn of origineel)
+    prijs_systeem_display = prijs_sys if prijs_sys is not None else systeem_row[config.CANON_PRIJS]
+    prijs_factuur_display = prijs_fac if prijs_fac is not None else factuur_row[config.CANON_PRIJS]
+
     resultaat = {
         'status': status,
         'artikelcode': systeem_row[config.CANON_ARTIKELCODE] or factuur_row[config.CANON_ARTIKELCODE],
         'artikelnaam': systeem_row[config.CANON_ARTIKELNAAM] or factuur_row[config.CANON_ARTIKELNAAM],
-        'aantal_systeem': systeem_row[config.CANON_AANTAL],
-        'aantal_factuur': factuur_row[config.CANON_AANTAL],
-        'prijs_systeem': systeem_row[config.CANON_PRIJS],
-        'prijs_factuur': factuur_row[config.CANON_PRIJS],
+        'aantal_systeem': aantal_sys,
+        'aantal_factuur': aantal_fac,
+        'prijs_systeem': prijs_systeem_display,
+        'prijs_factuur': prijs_factuur_display,
         'totaal_systeem': systeem_row[config.CANON_TOTAAL],
         'totaal_factuur': factuur_row[config.CANON_TOTAAL],
         'btw_systeem': systeem_row[config.CANON_BTW],
         'btw_factuur': factuur_row[config.CANON_BTW],
         'afwijking_toelichting': toelichting
     }
-    
+
     return resultaat
 
 
@@ -532,71 +580,4 @@ def _sort_by_status_priority(df: pd.DataFrame) -> pd.DataFrame:
     return df_sorted
 
 
-def vergelijk_facturen(df_systeem: pd.DataFrame, df_factuur: pd.DataFrame) -> pd.DataFrame:
-    """
-    Hoofdfunctie: vergelijkt systeemexport met leveranciersfactuur.
-    
-    [... rest van docstring blijft ...]
-    """
-    
-    # Stap 1: Match regels
-    matches = match_regels(df_systeem, df_factuur)
-    
-    # Stap 2: Bouw resultaten lijst
-    resultaten = []
-    
-    # Verwerk gematchte regels
-    for systeem_idx, factuur_idx in matches['gematchte_regels']:
-        systeem_row = df_systeem.iloc[systeem_idx]
-        factuur_row = df_factuur.iloc[factuur_idx]
-        
-        resultaat = vergelijk_regel(systeem_row, factuur_row)
-        resultaten.append(resultaat)
-    
-    # Verwerk niet-gematchte systeemregels
-    for systeem_idx in matches['systeem_zonder_match']:
-        systeem_row = df_systeem.iloc[systeem_idx]
-        
-        resultaat = {
-            'status': config.STATUS_ONTBREEKT_FACTUUR,
-            'artikelcode': systeem_row[config.CANON_ARTIKELCODE],
-            'artikelnaam': systeem_row[config.CANON_ARTIKELNAAM],
-            'aantal_systeem': systeem_row[config.CANON_AANTAL],
-            'aantal_factuur': None,
-            'prijs_systeem': systeem_row[config.CANON_PRIJS],
-            'prijs_factuur': None,
-            'totaal_systeem': systeem_row[config.CANON_TOTAAL],
-            'totaal_factuur': None,
-            'btw_systeem': systeem_row[config.CANON_BTW],
-            'btw_factuur': None,
-            'afwijking_toelichting': 'Regel staat in systeem maar niet op factuur'
-        }
-        resultaten.append(resultaat)
-    
-    # Verwerk niet-gematchte factuurregels
-    for factuur_idx in matches['factuur_zonder_match']:
-        factuur_row = df_factuur.iloc[factuur_idx]
-        
-        resultaat = {
-            'status': config.STATUS_ONTBREEKT_SYSTEEM,
-            'artikelcode': factuur_row[config.CANON_ARTIKELCODE],
-            'artikelnaam': factuur_row[config.CANON_ARTIKELNAAM],
-            'aantal_systeem': None,
-            'aantal_factuur': factuur_row[config.CANON_AANTAL],
-            'prijs_systeem': None,
-            'prijs_factuur': factuur_row[config.CANON_PRIJS],
-            'totaal_systeem': None,
-            'totaal_factuur': factuur_row[config.CANON_TOTAAL],
-            'btw_systeem': None,
-            'btw_factuur': factuur_row[config.CANON_BTW],
-            'afwijking_toelichting': 'Regel staat op factuur maar niet in systeem'
-        }
-        resultaten.append(resultaat)
-    
-    # Converteer naar DataFrame
-    df_resultaat = pd.DataFrame(resultaten)
-    
-    # ✨ NIEUW: Sorteer op status prioriteit
-    df_resultaat = _sort_by_status_priority(df_resultaat)
-    
-    return df_resultaat  
+  
