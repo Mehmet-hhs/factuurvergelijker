@@ -272,50 +272,59 @@ def normaliseer_naam(naam: str) -> str:
     return genormaliseerd
 
 
-def bereken_effectieve_prijs(aantal: float, totaal: float, prijs_per_stuk: float = None) -> float:
+def bedragen_gelijk(totaal_sys: float, totaal_fac: float, tolerantie: float) -> bool:
     """
-    Bepaalt de enige prijs die relevant is voor vergelijking:
-    de uiteindelijke betaalde prijs per artikel.
+    Vergelijkt twee netto bedragen binnen tolerantie.
 
-    Deze functie is de ENIGE BRON VAN WAARHEID voor prijsbepaling.
-
-    Logica:
-    1. Als prijs_per_stuk expliciet bekend is → gebruik die
-    2. Anders: bereken uit totaal / aantal (indien mogelijk)
-    3. Anders: None (niet vergelijkbaar)
+    Dit is de LEIDENDE vergelijking voor prijsafwijkingen.
+    Prijs-per-stuk is afgeleid (totaal / aantal), nooit leidend.
 
     Parameters
     ----------
-    aantal : float
-        Aantal artikelen.
-    totaal : float
-        Totaalbedrag voor deze regel.
-    prijs_per_stuk : float, optional
-        Expliciete prijs per stuk (indien aanwezig).
+    totaal_sys : float
+        Netto totaalbedrag uit systeem.
+    totaal_fac : float
+        Netto totaalbedrag uit factuur.
+    tolerantie : float
+        Maximaal toegestaan verschil.
+
+    Returns
+    -------
+    bool
+        True als bedragen gelijk zijn (binnen tolerantie).
+    """
+    return abs(float(totaal_sys) - float(totaal_fac)) <= tolerantie
+
+
+def bepaal_netto_bedrag(row: pd.Series) -> Optional[float]:
+    """
+    Bepaalt het netto regelbedrag (na korting, voor BTW).
+
+    Prioriteit:
+    1. Totaal veld (= netto regelbedrag)
+    2. Prijs_per_stuk * aantal (fallback)
+    3. None (niet bepaalbaar)
+
+    Parameters
+    ----------
+    row : pd.Series
+        Regel uit systeem of factuur (canoniek model).
 
     Returns
     -------
     float or None
-        Effectieve prijs per stuk, of None indien niet bepaalbaar.
-
-    Voorbeelden
-    -----------
-    >>> bereken_effectieve_prijs(10, 100, prijs_per_stuk=10.0)
-    10.0
-    >>> bereken_effectieve_prijs(10, 100, prijs_per_stuk=None)
-    10.0
-    >>> bereken_effectieve_prijs(10, None, prijs_per_stuk=None)
-    None
+        Netto bedrag, of None indien niet bepaalbaar.
     """
-    # Prioriteit 1: Expliciet opgegeven prijs per stuk
-    if pd.notna(prijs_per_stuk) and prijs_per_stuk is not None:
-        return float(prijs_per_stuk)
+    totaal = row[config.CANON_TOTAAL]
+    if pd.notna(totaal) and totaal is not None:
+        return float(totaal)
 
-    # Prioriteit 2: Bereken uit totaal / aantal
-    if pd.notna(aantal) and pd.notna(totaal) and aantal > 0:
-        return float(totaal) / float(aantal)
+    # Fallback: prijs * aantal
+    prijs = row[config.CANON_PRIJS]
+    aantal = row[config.CANON_AANTAL]
+    if pd.notna(prijs) and pd.notna(aantal) and prijs is not None and aantal is not None:
+        return float(prijs) * float(aantal)
 
-    # Kan niet bepaald worden
     return None
 
 
@@ -323,18 +332,25 @@ def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
     """
     Vergelijkt één systeemregel met één factuurregel.
 
-    NIEUWE BUSINESS REGEL (v1.3 - Business Logic Correctie):
-    ========================================================
+    BUSINESS REGEL (v1.4 - Netto Bedrag Leidend):
+    ==============================================
     Een artikel mag ALLEEN als "AFWIJKING" worden gemarkeerd als:
     1. Het aantal verschilt (buiten tolerantie), OF
-    2. De uiteindelijke betaalde prijs per artikel verschilt (buiten tolerantie)
+    2. Het netto totaalbedrag per regel verschilt (buiten tolerantie)
 
-    NIETS ANDERS mag een afwijking veroorzaken.
+    BESLISBOOM:
+    1. Aantal gelijk? → Nee → AFWIJKING
+    2. Netto totaalbedrag gelijk (binnen tolerantie)? → Ja → OK
+    3. Nee → AFWIJKING
 
-    Velden zoals bruto_prijs, netto_prijs, korting, staffel, BTW, totaalbedrag
-    zijn INFORMATIEF maar mogen NOOIT zelfstandig een afwijking triggeren.
+    BELANGRIJK:
+    - Totaalbedrag (netto) is LEIDEND, niet prijs_per_stuk
+    - Prijs_per_stuk = totaal / aantal (AFGELEID, nooit leidend)
+    - Bruto prijs, korting %, staffelprijs → INFORMATIEF, geen criteria
+    - BTW → wordt genegeerd in vergelijking
 
-    Dit voorkomt valse afwijkingen door verschillende prijsopbouwen tussen leveranciers.
+    Dit voorkomt valse afwijkingen wanneer leveranciers korting toepassen
+    (bijv. 45% korting: bruto €155,70 → netto €85,64).
 
     Parameters
     ----------
@@ -352,82 +368,59 @@ def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
     afwijkingen = []
 
     # =========================================================================
-    # STAP 1: VERGELIJK AANTAL (ENIGE CRITERIUM 1)
+    # STAP 1: VERGELIJK AANTAL
     # =========================================================================
     aantal_sys = systeem_row[config.CANON_AANTAL]
     aantal_fac = factuur_row[config.CANON_AANTAL]
     aantal_vergelijkbaar = pd.notna(aantal_sys) and pd.notna(aantal_fac)
 
     if aantal_vergelijkbaar:
-        aantal_afwijking = vergelijk_numeriek(
-            aantal_sys,
-            aantal_fac,
-            config.TOLERANTIE_AANTAL,
-            'aantal'
-        )
-        if aantal_afwijking:
-            afwijkingen.append(aantal_afwijking)
+        if abs(float(aantal_sys) - float(aantal_fac)) > config.TOLERANTIE_AANTAL:
+            afwijkingen.append(
+                f"Aantal wijkt af (systeem {int(aantal_sys)}, factuur {int(aantal_fac)})"
+            )
 
     # =========================================================================
-    # STAP 2: VERGELIJK EFFECTIEVE PRIJS (ENIGE CRITERIUM 2)
+    # STAP 2: VERGELIJK NETTO TOTAALBEDRAG (LEIDEND)
     # =========================================================================
-    # Bepaal effectieve prijs per kant (uiteindelijke betaalde prijs)
-    prijs_sys = bereken_effectieve_prijs(
-        aantal_sys,
-        systeem_row[config.CANON_TOTAAL],
-        systeem_row[config.CANON_PRIJS]
-    )
-    prijs_fac = bereken_effectieve_prijs(
-        aantal_fac,
-        factuur_row[config.CANON_TOTAAL],
-        factuur_row[config.CANON_PRIJS]
-    )
+    bedrag_sys = bepaal_netto_bedrag(systeem_row)
+    bedrag_fac = bepaal_netto_bedrag(factuur_row)
+    bedrag_vergelijkbaar = (bedrag_sys is not None) and (bedrag_fac is not None)
 
-    prijs_vergelijkbaar = (prijs_sys is not None) and (prijs_fac is not None)
-
-    if prijs_vergelijkbaar:
-        prijs_afwijking = vergelijk_numeriek(
-            prijs_sys,
-            prijs_fac,
-            config.TOLERANTIE_PRIJS,
-            'prijs per stuk',
-            is_bedrag=True
-        )
-        if prijs_afwijking:
-            afwijkingen.append(prijs_afwijking)
+    if bedrag_vergelijkbaar:
+        if not bedragen_gelijk(bedrag_sys, bedrag_fac, config.TOLERANTIE_TOTAAL):
+            afwijkingen.append(
+                f"Bedrag wijkt af (systeem €{bedrag_sys:.2f}, factuur €{bedrag_fac:.2f})"
+            )
 
     # =========================================================================
-    # STAP 3: BEPAAL STATUS (ALLEEN OP BASIS VAN AANTAL EN PRIJS)
+    # STAP 3: BEPAAL STATUS
     # =========================================================================
     if afwijkingen:
         status = config.STATUS_AFWIJKING
-    elif not aantal_vergelijkbaar or not prijs_vergelijkbaar:
-        # Indien aantal of prijs niet vergelijkbaar → gedeeltelijk
+    elif not aantal_vergelijkbaar or not bedrag_vergelijkbaar:
         status = config.STATUS_GEDEELTELIJK
     else:
-        # Aantal en prijs kloppen → OK
         status = config.STATUS_OK
 
     # =========================================================================
-    # STAP 4: BOUW TOELICHTING (SPECIFIEK EN VERKLAARBAAR)
+    # STAP 4: BOUW TOELICHTING
     # =========================================================================
     if afwijkingen:
-        # Specifieke afwijking: "Aantal wijkt af: ...", "Prijs per stuk wijkt af: ..."
         toelichting = '; '.join(afwijkingen)
     elif not aantal_vergelijkbaar:
         toelichting = 'Aantal kon niet worden vergeleken (ontbrekende data)'
-    elif not prijs_vergelijkbaar:
-        toelichting = 'Prijs per stuk kon niet worden bepaald (ontbrekende data)'
+    elif not bedrag_vergelijkbaar:
+        toelichting = 'Bedrag kon niet worden bepaald (ontbrekende data)'
     else:
-        # Alles OK
-        toelichting = 'Aantal en prijs komen overeen'
+        toelichting = 'Aantal en bedrag komen overeen'
 
     # =========================================================================
     # STAP 5: BOUW RESULTAAT
     # =========================================================================
-    # Bepaal welke prijs we tonen (kan berekend zijn of origineel)
-    prijs_systeem_display = prijs_sys if prijs_sys is not None else systeem_row[config.CANON_PRIJS]
-    prijs_factuur_display = prijs_fac if prijs_fac is not None else factuur_row[config.CANON_PRIJS]
+    # Prijs per stuk = afgeleid uit totaal / aantal (informatief)
+    prijs_sys_display = systeem_row[config.CANON_PRIJS]
+    prijs_fac_display = factuur_row[config.CANON_PRIJS]
 
     resultaat = {
         'status': status,
@@ -435,8 +428,8 @@ def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
         'artikelnaam': systeem_row[config.CANON_ARTIKELNAAM] or factuur_row[config.CANON_ARTIKELNAAM],
         'aantal_systeem': aantal_sys,
         'aantal_factuur': aantal_fac,
-        'prijs_systeem': prijs_systeem_display,
-        'prijs_factuur': prijs_factuur_display,
+        'prijs_systeem': prijs_sys_display,
+        'prijs_factuur': prijs_fac_display,
         'totaal_systeem': systeem_row[config.CANON_TOTAAL],
         'totaal_factuur': factuur_row[config.CANON_TOTAAL],
         'btw_systeem': systeem_row[config.CANON_BTW],
