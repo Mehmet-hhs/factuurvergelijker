@@ -30,7 +30,14 @@ from modules.data_validator import valideer_dataframe
 from modules.normalizer import normaliseer_dataframe
 from modules.comparator import vergelijk_facturen
 from modules.reporter import genereer_samenvatting, exporteer_naar_excel
-from modules.logger import configureer_logger, log_vergelijking_start, log_vergelijking_resultaat
+from modules.logger import configureer_logger, log_vergelijking_start, log_vergelijking_resultaat, log_pdf_conversie
+from modules.pdf_converter import (
+    detecteer_leverancier,
+    converteer_pdf_naar_df,
+    LeverancierOnbekendError,
+    PDFParseError,
+    PDFValidatieError
+)
 import config
 
 
@@ -52,6 +59,172 @@ if 'logger' not in st.session_state:
 
 
 # ============================================================================
+# HELPER FUNCTIES
+# ============================================================================
+
+def verwerk_bestand(uploaded_file, bestandstype_label: str):
+    """
+    Verwerkt een geüpload bestand (CSV, Excel, of PDF).
+
+    Parameters
+    ----------
+    uploaded_file : UploadedFile
+        Streamlit uploaded file object.
+    bestandstype_label : str
+        Label voor logging ("systeemexport" of "leveranciersfactuur").
+
+    Returns
+    -------
+    pd.DataFrame
+        Verwerkte DataFrame.
+
+    Raises
+    ------
+    Exception
+        Bij fouten tijdens verwerking (met duidelijke gebruikersmelding).
+    """
+    bestandsnaam = uploaded_file.name
+    bestandsextensie = Path(bestandsnaam).suffix.lower()
+
+    # Sla bestand tijdelijk op
+    with tempfile.NamedTemporaryFile(delete=False, suffix=bestandsextensie) as tmp:
+        tmp.write(uploaded_file.getvalue())
+        tmp_pad = Path(tmp.name)
+
+    try:
+        # Detecteer bestandstype
+        if bestandsextensie == '.pdf':
+            # PDF conversie
+            st.info(f"📄 PDF gedetecteerd: {bestandsnaam}")
+
+            # Detecteer leverancier
+            with st.spinner('Leverancier wordt gedetecteerd...'):
+                leverancier = detecteer_leverancier(tmp_pad)
+
+                if leverancier is None:
+                    st.error("❌ **Onbekende leverancier**")
+                    st.error("Deze PDF kan niet automatisch worden verwerkt.")
+                    st.info("""
+                    💡 **Ondersteunde leveranciers:**
+                    - Bosal Distribution
+                    - Fource / LKQ Netherlands B.V.
+                    - Kilinclar (intern systeem)
+
+                    **Alternatief:** Vraag uw leverancier om een CSV of Excel export.
+                    """)
+                    log_pdf_conversie(
+                        st.session_state.logger,
+                        bestandsnaam,
+                        "Onbekend",
+                        0,
+                        False,
+                        "Leverancier niet herkend"
+                    )
+                    st.stop()
+
+                st.success(f"✅ Leverancier herkend: **{leverancier}**")
+
+            # Converteer PDF naar DataFrame
+            with st.spinner(f'PDF wordt verwerkt ({leverancier})...'):
+                df = converteer_pdf_naar_df(tmp_pad, leverancier)
+
+                st.success(f"✅ PDF verwerkt: **{len(df)} regels** geëxtraheerd")
+
+                # Log succes
+                log_pdf_conversie(
+                    st.session_state.logger,
+                    bestandsnaam,
+                    leverancier,
+                    len(df),
+                    True
+                )
+
+                return df
+
+        elif bestandsextensie in ['.csv', '.xlsx', '.xls']:
+            # CSV/Excel verwerking (bestaande functionaliteit)
+            df = lees_csv(tmp_pad)
+            return df
+
+        else:
+            st.error(f"❌ **Ongeldig bestandstype: {bestandsextensie}**")
+            st.info("💡 Ondersteunde formaten: CSV, Excel (.xlsx), PDF")
+            st.stop()
+
+    except LeverancierOnbekendError as e:
+        st.error("❌ **Onbekende leverancier**")
+        st.error(str(e))
+        st.info("""
+        💡 **Ondersteunde leveranciers:**
+        - Bosal Distribution
+        - Fource / LKQ Netherlands B.V.
+        - Kilinclar (intern systeem)
+        """)
+        log_pdf_conversie(
+            st.session_state.logger,
+            bestandsnaam,
+            None,
+            0,
+            False,
+            str(e)
+        )
+        st.stop()
+
+    except PDFParseError as e:
+        st.error("❌ **PDF kan niet worden gelezen**")
+        st.error(str(e))
+        st.warning("⚠️ Mogelijke oorzaken:")
+        st.warning("- Gescande PDF (image-based, geen tekst)")
+        st.warning("- Corrupte of beschadigde PDF")
+        st.warning("- Onverwachte tabelstructuur")
+        st.info("💡 **Alternatief:** Gebruik een CSV of Excel export van uw leverancier.")
+        log_pdf_conversie(
+            st.session_state.logger,
+            bestandsnaam,
+            None,
+            0,
+            False,
+            f"Parse error: {str(e)}"
+        )
+        st.stop()
+
+    except PDFValidatieError as e:
+        st.warning("⚠️ **PDF verwerkt, maar data lijkt onvolledig**")
+        st.warning(str(e))
+        st.error("**Risico:** Als u doorgaat, kunnen artikelen ontbreken in de vergelijking.")
+
+        # Laat gebruiker beslissen
+        if not st.checkbox("Ik begrijp het risico en wil toch doorgaan", key=f"risk_accept_{bestandsnaam}"):
+            st.info("💡 **Veiliger alternatief:** Gebruik een CSV/Excel export.")
+            log_pdf_conversie(
+                st.session_state.logger,
+                bestandsnaam,
+                None,
+                0,
+                False,
+                f"Validatie error: {str(e)}"
+            )
+            st.stop()
+        else:
+            # Gebruiker accepteert risico - probeer opnieuw zonder strikte validatie
+            # (Voor nu: gewoon stoppen, later kan dit verfijnd worden)
+            st.error("Doorgaan met incomplete data is momenteel niet ondersteund.")
+            st.stop()
+
+    except Exception as e:
+        st.error(f"❌ **Onverwachte fout bij verwerken van bestand**")
+        st.error(f"Details: {str(e)}")
+        st.info("💡 Neem contact op met support als dit probleem blijft bestaan.")
+        st.session_state.logger.error(f"Fout bij verwerken bestand {bestandsnaam}: {str(e)}")
+        st.stop()
+
+    finally:
+        # Ruim tijdelijk bestand op
+        if tmp_pad.exists():
+            tmp_pad.unlink()
+
+
+# ============================================================================
 # HEADER
 # ============================================================================
 
@@ -60,10 +233,12 @@ st.markdown("""
 Vergelijk uw systeemexport met de leveranciersfactuur om automatisch afwijkingen te detecteren.
 
 **Hoe werkt het?**
-1. Upload uw systeemexport (CSV)
-2. Upload de leveranciersfactuur (CSV)
+1. Upload uw systeemexport (CSV, Excel, of PDF)
+2. Upload de leveranciersfactuur (CSV, Excel, of PDF)
 3. Klik op "Vergelijk facturen"
 4. Download het Excel-rapport met de resultaten
+
+**✨ Nieuw in v1.2:** PDF-ondersteuning voor Bosal, Fource en intern systeem!
 """)
 
 st.divider()
@@ -80,19 +255,19 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown("**Systeemexport**")
     bestand_systeem = st.file_uploader(
-        "Upload uw systeemexport (CSV)",
-        type=['csv'],
+        "Upload uw systeemexport",
+        type=['csv', 'xlsx', 'xls', 'pdf'],
         key='systeem',
-        help="Het CSV-bestand uit uw eigen systeem"
+        help="CSV, Excel, of PDF uit uw eigen systeem"
     )
 
 with col2:
     st.markdown("**Leveranciersfactuur**")
     bestand_factuur = st.file_uploader(
-        "Upload de leveranciersfactuur (CSV)",
-        type=['csv'],
+        "Upload de leveranciersfactuur",
+        type=['csv', 'xlsx', 'xls', 'pdf'],
         key='factuur',
-        help="Het CSV-bestand van de leverancier"
+        help="CSV, Excel, of PDF van de leverancier (Bosal, Fource)"
     )
 
 st.divider()
@@ -126,24 +301,14 @@ vergelijk_knop = st.button(
 # ============================================================================
 
 if vergelijk_knop:
-    
+
     try:
-        # Progress indicator
-        with st.spinner('Bestanden worden ingelezen...'):
-            start_tijd = time.time()
-            
-            # Sla uploads tijdelijk op
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_systeem:
-                tmp_systeem.write(bestand_systeem.getvalue())
-                pad_systeem = Path(tmp_systeem.name)
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_factuur:
-                tmp_factuur.write(bestand_factuur.getvalue())
-                pad_factuur = Path(tmp_factuur.name)
-            
-            # Lees bestanden
-            df_systeem_ruw = lees_csv(pad_systeem)
-            df_factuur_ruw = lees_csv(pad_factuur)
+        start_tijd = time.time()
+
+        # Verwerk bestanden (CSV, Excel, of PDF)
+        with st.spinner('Bestanden worden verwerkt...'):
+            df_systeem_ruw = verwerk_bestand(bestand_systeem, "systeemexport")
+            df_factuur_ruw = verwerk_bestand(bestand_factuur, "leveranciersfactuur")
         
         # ====================================================================
         # SYSTEEMEXPORT: Valideer VOOR normalisatie

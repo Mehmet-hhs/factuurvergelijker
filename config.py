@@ -144,3 +144,91 @@ LEVERANCIERS_MAPPING = {
 EXCEL_BESTANDSNAAM = "vergelijkingsresultaat.xlsx"
 EXCEL_SHEET_NAAM = "Vergelijking"
 EXCEL_SHEET_SAMENVATTING = "Samenvatting"
+
+# =============================================================================
+# PDF LEVERANCIER TEMPLATES (v1.2)
+# =============================================================================
+
+PDF_LEVERANCIER_TEMPLATES = {
+    "Bosal": {
+        "naam": "Bosal Distribution",
+        "identifier_regex": r"BOSAL DISTRIBUTION|www\.bosal\.com",
+        "parser_type": "custom_text",
+        "parser_config": {
+            "strategy": "single_line_pattern",
+            "header_pattern": r"Artikel\s+Artikelomschrijving\s+Geleverd",
+            "stop_pattern": r"Commodity Code|Totaal voor Pakbonnummer",
+            # Pattern groups: (artikelcode) (omschrijving) (aantal) (prijs) (totaal)
+            "line_pattern": r"^([\d-]+\s+\(\d+\))\s+(.*?)\s+(\d+)\s+\w+\s+\d+\s+([\d,]+)\s+([\d,]+)$",
+            "decimal_separator": ",",  # NL locale: 36,09
+        },
+        "kolom_mapping": {
+            0: "artikelcode",      # Group 1
+            1: "artikelnaam",      # Group 2
+            2: "aantal",           # Group 3
+            3: "prijs_per_stuk",   # Group 4
+            4: "totaal",           # Group 5
+        },
+        "validatie": {
+            "min_regels": 5,
+            "vereist_totaalbedrag": True,
+            "artikelcode_formaat": r"^\d+-\d+\s+\(\d+\)$"
+        }
+    },
+
+    "Fource": {
+        "naam": "LKQ Netherlands B.V. / Fource",
+        "identifier_regex": r"LKQ Netherlands B\.V\.|info@fource\.nl|www\.lkqeurope\.nl",
+        "parser_type": "custom_text",
+        "parser_config": {
+            "strategy": "two_line_pattern",
+            "header_pattern": r"Rgl\s+Order\s+Artikelnummer",
+            "stop_pattern": None,  # Parse tot einde
+            # Pattern groups: (rgl_nr) (order_nr) (artikelnummer) (bruto) (netto) (prijs) (aantal) (bedrag)
+            # Omschrijving staat op volgende regel
+            "line_pattern": r"^(\d+)\s+([\d-]+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+%?\s*([\d.]+)\s+(\d+)\s+([\d.]+)",
+            "decimal_separator": ".",
+            "description_follows": True,  # Omschrijving op rij+1
+        },
+        "kolom_mapping": {
+            2: "artikelcode",      # Group 3 (artikelnummer)
+            5: "prijs_per_stuk",   # Group 6 (prijs na korting)
+            6: "aantal",           # Group 7
+            7: "totaal",           # Group 8 (bedrag)
+            # artikelnaam komt van volgende regel
+        },
+        "validatie": {
+            "min_regels": 10,
+            "vereist_totaalbedrag": True,
+            "artikelcode_formaat": r"^\S+"
+        }
+    },
+
+    "InternSysteem": {
+        "naam": "Kilinclar Automaterialen (Intern Systeem)",
+        "identifier_regex": r"info@kilinclar\.nl|RETOUR FACTUUR|NL92 ABNA 0510 2163 82",
+        "parser_type": "custom_text",
+        "parser_config": {
+            "strategy": "single_line_pattern",
+            "header_pattern": r"Artikelnummer\s+Omschrijving\s+Aantal\s+Stuksprijs\s+Bedrag",
+            "stop_pattern": r"Subtotaal|Totaal Excl\.|BTW",
+            # Pattern: parse van rechts naar links (cijfers zijn betrouwbaarder)
+            # (artikelnummer) (omschrijving) (aantal) (stuksprijs) (bedrag)
+            # Artikelnummer en omschrijving kunnen spaties bevatten
+            "line_pattern": r"^(.+?)\s+(.+?)\s+(\d+)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)$",
+            "decimal_separator": ",",  # NL format: 14,35
+        },
+        "kolom_mapping": {
+            0: "artikelcode",      # Group 1
+            1: "artikelnaam",      # Group 2
+            2: "aantal",           # Group 3
+            3: "prijs_per_stuk",   # Group 4
+            4: "totaal",           # Group 5
+        },
+        "validatie": {
+            "min_regels": 5,
+            "vereist_totaalbedrag": True,
+            "artikelcode_formaat": r"^.+"  # Flexibel (spaties toegestaan)
+        }
+    }
+}

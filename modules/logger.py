@@ -203,7 +203,7 @@ def log_vergelijking_resultaat(
 def log_fout(logger: logging.Logger, foutmelding: str, details: str = None):
     """
     Logt een fout tijdens de vergelijking.
-    
+
     Parameters
     ----------
     logger : logging.Logger
@@ -213,7 +213,57 @@ def log_fout(logger: logging.Logger, foutmelding: str, details: str = None):
     details : str, optional
         Aanvullende details over de fout.
     """
-    
+
     logger.error(f"FOUT: {foutmelding}")
     if details:
         logger.error(f"Details: {details}")
+
+
+def log_pdf_conversie(
+    logger: logging.Logger,
+    bestandsnaam: str,
+    leverancier: str,
+    aantal_regels: int,
+    succes: bool,
+    fout: str = None
+):
+    """
+    Logt PDF conversie events (privacy-proof).
+
+    GEEN data-inhoud (artikelnamen, prijzen), alleen metadata.
+
+    Parameters
+    ----------
+    logger : logging.Logger
+        Logger instance.
+    bestandsnaam : str
+        Naam van PDF-bestand (zonder pad).
+    leverancier : str
+        Gedetecteerde leverancier naam.
+    aantal_regels : int
+        Aantal geëxtraheerde regels.
+    succes : bool
+        True als conversie succesvol, False bij fout.
+    fout : str, optional
+        Foutmelding bij mislukte conversie.
+
+    Voorbeelden
+    -----------
+    >>> log_pdf_conversie(logger, "factuur_jan.pdf", "Bosal", 45, True)
+    >>> log_pdf_conversie(logger, "onbekend.pdf", None, 0, False, "Leverancier niet herkend")
+    """
+
+    if succes:
+        logger.info("=" * 70)
+        logger.info("PDF CONVERSIE SUCCESVOL")
+        logger.info(f"  - Bestand: {bestandsnaam}")
+        logger.info(f"  - Leverancier: {leverancier}")
+        logger.info(f"  - Geëxtraheerde regels: {aantal_regels}")
+        logger.info("=" * 70)
+    else:
+        logger.error("=" * 70)
+        logger.error("PDF CONVERSIE GEFAALD")
+        logger.error(f"  - Bestand: {bestandsnaam}")
+        logger.error(f"  - Leverancier (detectie): {leverancier if leverancier else 'Onbekend'}")
+        logger.error(f"  - Fout: {fout}")
+        logger.error("=" * 70)
