@@ -328,29 +328,68 @@ def bepaal_netto_bedrag(row: pd.Series) -> Optional[float]:
     return None
 
 
+def _detecteer_korting(row: pd.Series) -> Optional[float]:
+    """
+    Detecteert of er korting is toegepast op een regel.
+
+    Korting wordt gedetecteerd als prijs_per_stuk × aantal ≠ totaal.
+    Dit duidt erop dat de prijs_per_stuk de bruto prijs is,
+    en het totaal het netto bedrag (na korting).
+
+    Returns
+    -------
+    float or None
+        Korting percentage (0-100) indien gedetecteerd, anders None.
+    """
+    prijs = row[config.CANON_PRIJS]
+    aantal = row[config.CANON_AANTAL]
+    totaal = row[config.CANON_TOTAAL]
+
+    if not (pd.notna(prijs) and pd.notna(aantal) and pd.notna(totaal)):
+        return None
+
+    prijs = float(prijs)
+    aantal = float(aantal)
+    totaal = float(totaal)
+
+    if aantal <= 0 or prijs <= 0:
+        return None
+
+    bruto_bedrag = prijs * aantal
+
+    # Als bruto ≈ totaal → geen korting
+    if abs(bruto_bedrag - totaal) <= config.TOLERANTIE_TOTAAL:
+        return None
+
+    # Als totaal < bruto → korting gedetecteerd
+    if totaal < bruto_bedrag:
+        korting_pct = (1 - totaal / bruto_bedrag) * 100
+        return round(korting_pct, 0)
+
+    return None
+
+
 def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
     """
     Vergelijkt één systeemregel met één factuurregel.
 
-    BUSINESS REGEL (v1.4 - Netto Bedrag Leidend):
-    ==============================================
+    BUSINESS REGEL (v1.4a - Netto Bedrag Leidend, Korting-Bewust):
+    ==============================================================
     Een artikel mag ALLEEN als "AFWIJKING" worden gemarkeerd als:
     1. Het aantal verschilt (buiten tolerantie), OF
     2. Het netto totaalbedrag per regel verschilt (buiten tolerantie)
 
     BESLISBOOM:
-    1. Aantal gelijk? → Nee → AFWIJKING
-    2. Netto totaalbedrag gelijk (binnen tolerantie)? → Ja → OK
-    3. Nee → AFWIJKING
+    1. Artikel gematcht? Nee → ontbreekt (INFO)
+    2. Aantal gelijk? Nee → AFWIJKING
+    3. Netto totaalbedrag gelijk (binnen tolerantie)? Ja → OK
+    4. Nee → AFWIJKING
 
     BELANGRIJK:
     - Totaalbedrag (netto) is LEIDEND, niet prijs_per_stuk
-    - Prijs_per_stuk = totaal / aantal (AFGELEID, nooit leidend)
-    - Bruto prijs, korting %, staffelprijs → INFORMATIEF, geen criteria
-    - BTW → wordt genegeerd in vergelijking
-
-    Dit voorkomt valse afwijkingen wanneer leveranciers korting toepassen
-    (bijv. 45% korting: bruto €155,70 → netto €85,64).
+    - Prijs_per_stuk is INFORMATIEF (kan bruto zijn bij korting)
+    - Korting wordt automatisch gedetecteerd en gemeld
+    - BTW wordt genegeerd in vergelijking
 
     Parameters
     ----------
@@ -404,21 +443,33 @@ def vergelijk_regel(systeem_row: pd.Series, factuur_row: pd.Series) -> Dict:
         status = config.STATUS_OK
 
     # =========================================================================
-    # STAP 4: BOUW TOELICHTING
+    # STAP 4: BOUW TOELICHTING (KORTING-BEWUST)
     # =========================================================================
+    # Detecteer korting op beide kanten
+    korting_sys = _detecteer_korting(systeem_row)
+    korting_fac = _detecteer_korting(factuur_row)
+
     if afwijkingen:
         toelichting = '; '.join(afwijkingen)
     elif not aantal_vergelijkbaar:
         toelichting = 'Aantal kon niet worden vergeleken (ontbrekende data)'
     elif not bedrag_vergelijkbaar:
         toelichting = 'Bedrag kon niet worden bepaald (ontbrekende data)'
+    elif korting_sys or korting_fac:
+        # Bedrag klopt, maar er is korting gedetecteerd → meld dit
+        korting_info = []
+        if korting_sys:
+            korting_info.append(f"systeem {int(korting_sys)}%")
+        if korting_fac:
+            korting_info.append(f"factuur {int(korting_fac)}%")
+        toelichting = f"Bedrag komt overeen (korting toegepast: {', '.join(korting_info)})"
     else:
         toelichting = 'Aantal en bedrag komen overeen'
 
     # =========================================================================
     # STAP 5: BOUW RESULTAAT
     # =========================================================================
-    # Prijs per stuk = afgeleid uit totaal / aantal (informatief)
+    # Prijs per stuk = originele waarde (informatief, kan bruto zijn)
     prijs_sys_display = systeem_row[config.CANON_PRIJS]
     prijs_fac_display = factuur_row[config.CANON_PRIJS]
 
