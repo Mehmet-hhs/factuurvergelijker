@@ -32,6 +32,9 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+# Import formatter voor number formatting (v1.2.2)
+from modules.formatter import formatteer_excel_kolom
+
 
 def genereer_samenvatting(df_resultaat: pd.DataFrame) -> Dict:
     """
@@ -331,6 +334,24 @@ def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
         
         adjusted_width = min(max_length + 2, 50)  # Max 50 voor leesbaarheid
         worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    # ✨ v1.2.2: Number formatting voor aantallen en prijzen
+    # Bepaal welke kolommen numbers bevatten
+    kolom_types = {
+        'aantal_systeem': 'aantal',
+        'aantal_factuur': 'aantal',
+        'prijs_systeem': 'prijs',
+        'prijs_factuur': 'prijs',
+        'totaal_systeem': 'prijs',
+        'totaal_factuur': 'prijs'
+    }
+
+    # Pas Excel number format toe per kolom
+    for col_idx, col_name in enumerate(df_resultaat.columns, start=1):
+        if col_name in kolom_types:
+            kolom_letter = worksheet.cell(row=1, column=col_idx).column_letter
+            kolom_type = kolom_types[col_name]
+            formatteer_excel_kolom(worksheet, kolom_letter, kolom_type)
 
 
 def _get_fill_color(kleur_naam: str) -> PatternFill:

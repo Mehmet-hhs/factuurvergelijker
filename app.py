@@ -31,6 +31,7 @@ from modules.normalizer import normaliseer_dataframe
 from modules.comparator import vergelijk_facturen
 from modules.reporter import genereer_samenvatting, exporteer_naar_excel
 from modules.logger import configureer_logger, log_vergelijking_start, log_vergelijking_resultaat, log_pdf_conversie
+from modules.formatter import formatteer_aantal, formatteer_prijs
 from modules.pdf_converter import (
     detecteer_leverancier,
     converteer_pdf_naar_df,
@@ -38,6 +39,7 @@ from modules.pdf_converter import (
     PDFParseError,
     PDFValidatieError
 )
+from modules.pdf_classifier import classificeer_pdf
 import config
 
 
@@ -94,52 +96,107 @@ def verwerk_bestand(uploaded_file, bestandstype_label: str):
     try:
         # Detecteer bestandstype
         if bestandsextensie == '.pdf':
-            # PDF conversie
+            # ✨ v1.2.2: PDF pre-classificatie voor vriendelijke UX
             st.info(f"📄 PDF gedetecteerd: {bestandsnaam}")
 
-            # Detecteer leverancier
-            with st.spinner('Leverancier wordt gedetecteerd...'):
-                leverancier = detecteer_leverancier(tmp_pad)
+            # Pre-classificatie (voordat volledige parsing plaatsvindt)
+            with st.spinner('PDF wordt geanalyseerd...'):
+                classificatie = classificeer_pdf(tmp_pad)
 
-                if leverancier is None:
-                    st.error("❌ **Onbekende leverancier**")
-                    st.error("Deze PDF kan niet automatisch worden verwerkt.")
-                    st.info("""
-                    💡 **Ondersteunde leveranciers:**
-                    - Bosal Distribution
-                    - Fource / LKQ Netherlands B.V.
-                    - Kilinclar (intern systeem)
+            # 4-way branching op basis van classificatie type
+            if classificatie.type == 'gescand':
+                # Scenario 1: Gescande PDF (image-based, geen tekst)
+                st.warning("⚠️ **Gescande PDF gedetecteerd**")
+                st.info("""
+                Deze PDF is gescand als afbeelding en bevat geen doorzoekbare tekst.
+                Automatische verwerking is niet mogelijk.
 
-                    **Alternatief:** Vraag uw leverancier om een CSV of Excel export.
-                    """)
-                    log_pdf_conversie(
-                        st.session_state.logger,
-                        bestandsnaam,
-                        "Onbekend",
-                        0,
-                        False,
-                        "Leverancier niet herkend"
-                    )
-                    st.stop()
-
-                st.success(f"✅ Leverancier herkend: **{leverancier}**")
-
-            # Converteer PDF naar DataFrame
-            with st.spinner(f'PDF wordt verwerkt ({leverancier})...'):
-                df = converteer_pdf_naar_df(tmp_pad, leverancier)
-
-                st.success(f"✅ PDF verwerkt: **{len(df)} regels** geëxtraheerd")
-
-                # Log succes
+                💡 **Wat kunt u doen?**
+                • Vraag uw leverancier om een digitale (niet-gescande) factuur
+                • Gebruik een CSV of Excel export in plaats van PDF
+                • Als dit een eenmalige factuur is, kunt u handmatig vergelijken
+                """)
                 log_pdf_conversie(
                     st.session_state.logger,
                     bestandsnaam,
-                    leverancier,
-                    len(df),
-                    True
+                    None,
+                    0,
+                    False,
+                    "Gescande PDF"
                 )
+                st.stop()
 
-                return df
+            elif classificatie.type == 'text_geen_template':
+                # Scenario 2: Text-based maar geen ondersteund template
+                st.info("ℹ️ **PDF bevat artikelregels, maar geen ondersteund formaat**")
+                st.info("""
+                Deze PDF heeft wel leesbare tekst en artikelregels, maar het formaat
+                komt niet overeen met onze ondersteunde leveranciers.
+
+                💡 **Alternatief:**
+                • Exporteer de factuur naar CSV of Excel vanuit uw leverancierssysteem
+                • Stuur ons deze PDF zodat we het formaat kunnen toevoegen
+
+                📋 **Ondersteunde PDF-leveranciers:**
+                • Bosal Distribution
+                • Fource / LKQ Netherlands B.V.
+                • Kilinclar (intern systeem)
+                """)
+                log_pdf_conversie(
+                    st.session_state.logger,
+                    bestandsnaam,
+                    None,
+                    0,
+                    False,
+                    "Geen template"
+                )
+                st.stop()
+
+            elif classificatie.type == 'geen_artikelregels':
+                # Scenario 3: PDF zonder artikeltabel
+                st.error("❌ **Geen artikeltabel gevonden**")
+                st.info("""
+                Deze PDF lijkt geen artikelregels te bevatten. Het kan gaan om een
+                voorpagina, begeleidende brief, of samenvattingspagina.
+
+                💡 **Controleer:**
+                • Is dit de juiste pagina van de factuur?
+                • Bevat de PDF wel een gedetailleerde artikellijst?
+                • Misschien heeft u een samenvattingspagina geüpload?
+
+                Als de PDF wel artikelen bevat, neem dan contact op met support.
+                """)
+                log_pdf_conversie(
+                    st.session_state.logger,
+                    bestandsnaam,
+                    None,
+                    0,
+                    False,
+                    "Geen artikelen"
+                )
+                st.stop()
+
+            elif classificatie.type == 'template_herkend':
+                # Scenario 4: Success - Template herkend, parse PDF
+                leverancier = classificatie.leverancier
+                st.success(f"✅ Leverancier herkend: **{leverancier}**")
+
+                # Converteer PDF naar DataFrame
+                with st.spinner(f'PDF wordt verwerkt ({leverancier})...'):
+                    df = converteer_pdf_naar_df(tmp_pad, leverancier)
+
+                    st.success(f"✅ PDF verwerkt: **{len(df)} regels** geëxtraheerd")
+
+                    # Log succes
+                    log_pdf_conversie(
+                        st.session_state.logger,
+                        bestandsnaam,
+                        leverancier,
+                        len(df),
+                        True
+                    )
+
+                    return df
 
         elif bestandsextensie in ['.csv', '.xlsx', '.xls']:
             # CSV/Excel verwerking (bestaande functionaliteit)
@@ -506,8 +563,18 @@ if 'resultaat' in st.session_state:
         else:
             return 'background-color: #d9d9d9'
     
-    df_styled = df_tonen.style.applymap(kleur_status, subset=['status'])
-    
+    # ✨ v1.2.2: Styling met kleurcodering EN number formatting
+    df_styled = df_tonen.style \
+        .applymap(kleur_status, subset=['status']) \
+        .format({
+            'aantal_systeem': lambda x: formatteer_aantal(x),
+            'aantal_factuur': lambda x: formatteer_aantal(x),
+            'prijs_systeem': lambda x: formatteer_prijs(x),
+            'prijs_factuur': lambda x: formatteer_prijs(x),
+            'totaal_systeem': lambda x: formatteer_prijs(x),
+            'totaal_factuur': lambda x: formatteer_prijs(x)
+        })
+
     st.dataframe(
         df_styled,
         use_container_width=True,
