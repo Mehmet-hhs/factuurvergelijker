@@ -606,7 +606,9 @@ if vergelijk_knop:
                 df_resultaat,
                 output_dir,
                 systeem_naam,
-                leverancier_naam
+                leverancier_naam,
+                aggregatie_systeem=result_systeem,        # v1.3 Fase 4a
+                aggregatie_leverancier=result_leverancier  # v1.3 Fase 4a
             )
 
         # Log resultaat

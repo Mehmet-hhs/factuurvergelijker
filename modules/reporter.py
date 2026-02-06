@@ -18,7 +18,7 @@ Output:
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime
 import sys
 
@@ -34,6 +34,11 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # Import formatter voor number formatting (v1.2.2)
 from modules.formatter import formatteer_excel_kolom
+
+# Import voor type hinting (v1.3 Fase 4a)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from modules.aggregator import AggregatieResultaat
 
 
 def genereer_samenvatting(df_resultaat: pd.DataFrame) -> Dict:
@@ -101,7 +106,9 @@ def exporteer_naar_excel(
     df_resultaat: pd.DataFrame,
     output_pad: Path,
     bestandsnaam_systeem: str = "systeem",
-    bestandsnaam_factuur: str = "factuur"
+    bestandsnaam_factuur: str = "factuur",
+    aggregatie_systeem: Optional['AggregatieResultaat'] = None,
+    aggregatie_leverancier: Optional['AggregatieResultaat'] = None
 ) -> Path:
     """
     Exporteert resultaten naar Excel met 2 tabbladen en kleurcodering.
@@ -116,6 +123,12 @@ def exporteer_naar_excel(
         Naam van systeemexport (voor in bestandsnaam).
     bestandsnaam_factuur : str
         Naam van leveranciersfactuur (voor in bestandsnaam).
+    aggregatie_systeem : AggregatieResultaat, optional
+        Aggregatie metadata voor systeem documenten (v1.3 Fase 4a).
+        Als None, wordt oude format gebruikt (backwards compatible).
+    aggregatie_leverancier : AggregatieResultaat, optional
+        Aggregatie metadata voor leverancier documenten (v1.3 Fase 4a).
+        Als None, wordt oude format gebruikt (backwards compatible).
 
     Returns
     -------
@@ -124,14 +137,23 @@ def exporteer_naar_excel(
 
     Voorbeelden
     -----------
+    >>> # v1.2: Single document (backwards compatible)
     >>> pad = exporteer_naar_excel(
     ...     resultaat_df,
     ...     Path("./output"),
     ...     "export_jan",
     ...     "factuur_leverancier_A"
     ... )
-    >>> print(pad)
-    ./output/vergelijking_export_jan_vs_factuur_leverancier_A_20240215_143022.xlsx
+
+    >>> # v1.3: Multi-document met aggregatie metadata
+    >>> pad = exporteer_naar_excel(
+    ...     resultaat_df,
+    ...     Path("./output"),
+    ...     "export_jan",
+    ...     "factuur_leverancier_A",
+    ...     aggregatie_systeem=result_systeem,
+    ...     aggregatie_leverancier=result_leverancier
+    ... )
     """
 
     # ✨ DEBUG: Schrijf naar bestand
@@ -168,8 +190,13 @@ def exporteer_naar_excel(
     
     # TABBLAD 1: Samenvatting
     ws_samenvatting = workbook.create_sheet(config.EXCEL_SHEET_SAMENVATTING)
-    _schrijf_samenvatting_sheet(ws_samenvatting, samenvatting)
-    
+    _schrijf_samenvatting_sheet(
+        ws_samenvatting,
+        samenvatting,
+        aggregatie_systeem,
+        aggregatie_leverancier
+    )
+
     # TABBLAD 2: Details
     ws_details = workbook.create_sheet(config.EXCEL_SHEET_NAAM)
     _schrijf_details_sheet(ws_details, df_resultaat)
@@ -180,58 +207,169 @@ def exporteer_naar_excel(
     return volledig_pad
 
 
-def _schrijf_samenvatting_sheet(worksheet, samenvatting: Dict):
+def _schrijf_samenvatting_sheet(
+    worksheet,
+    samenvatting: Dict,
+    aggregatie_systeem: Optional['AggregatieResultaat'] = None,
+    aggregatie_leverancier: Optional['AggregatieResultaat'] = None
+):
     """
     Schrijft samenvattingsgegevens naar Excel sheet.
-    
+
     Parameters
     ----------
     worksheet : openpyxl.worksheet.worksheet.Worksheet
         Excel worksheet om naar te schrijven.
     samenvatting : dict
         Samenvatting zoals gegenereerd door genereer_samenvatting().
+    aggregatie_systeem : AggregatieResultaat, optional
+        Aggregatie metadata voor systeem documenten (v1.3 Fase 4a).
+    aggregatie_leverancier : AggregatieResultaat, optional
+        Aggregatie metadata voor leverancier documenten (v1.3 Fase 4a).
     """
-    
+
     # Titel
     worksheet['A1'] = 'VERGELIJKINGSRESULTAAT SAMENVATTING'
     worksheet['A1'].font = Font(bold=True, size=14)
-    
+
+    rij = 3  # Start positie voor content
+
+    # ========================================================================
+    # SECTIE 1: AGGREGATIE METADATA (v1.3 Fase 4a)
+    # ========================================================================
+    # Toon alleen als aggregatie metadata beschikbaar is
+
+    if aggregatie_systeem is not None:
+        # Systeem documenten sectie
+        worksheet[f'A{rij}'] = '📦 SYSTEEM DOCUMENTEN'
+        worksheet[f'A{rij}'].font = Font(bold=True, size=12)
+        rij += 1
+
+        # Metadata
+        metadata_sys = aggregatie_systeem.metadata
+        worksheet[f'A{rij}'] = 'Verwerkt:'
+        worksheet[f'B{rij}'] = f"{metadata_sys['aantal_documenten_verwerkt']} document(en)"
+        worksheet[f'A{rij}'].font = Font(bold=True)
+        rij += 1
+
+        worksheet[f'A{rij}'] = 'Totaal regels:'
+        worksheet[f'B{rij}'] = f"{metadata_sys['totaal_regels_input']} → {metadata_sys['totaal_regels_output']} unieke artikelen"
+        worksheet[f'A{rij}'].font = Font(bold=True)
+        rij += 1
+
+        # Documentlijst
+        rij += 1
+        worksheet[f'A{rij}'] = 'Documenten:'
+        worksheet[f'A{rij}'].font = Font(bold=True)
+        rij += 1
+
+        for doc_naam in metadata_sys['document_namen']:
+            worksheet[f'A{rij}'] = f"  • {doc_naam}"
+            rij += 1
+
+        rij += 1  # Extra lege regel
+
+    if aggregatie_leverancier is not None:
+        # Leverancier documenten sectie
+        worksheet[f'A{rij}'] = '📄 LEVERANCIER DOCUMENTEN'
+        worksheet[f'A{rij}'].font = Font(bold=True, size=12)
+        rij += 1
+
+        # Metadata
+        metadata_lev = aggregatie_leverancier.metadata
+        worksheet[f'A{rij}'] = 'Verwerkt:'
+        worksheet[f'B{rij}'] = f"{metadata_lev['aantal_documenten_verwerkt']} document(en)"
+        worksheet[f'A{rij}'].font = Font(bold=True)
+        rij += 1
+
+        worksheet[f'A{rij}'] = 'Totaal regels:'
+        worksheet[f'B{rij}'] = f"{metadata_lev['totaal_regels_input']} → {metadata_lev['totaal_regels_output']} unieke artikelen"
+        worksheet[f'A{rij}'].font = Font(bold=True)
+        rij += 1
+
+        # Documentlijst
+        rij += 1
+        worksheet[f'A{rij}'] = 'Documenten:'
+        worksheet[f'A{rij}'].font = Font(bold=True)
+        rij += 1
+
+        for doc_naam in metadata_lev['document_namen']:
+            worksheet[f'A{rij}'] = f"  • {doc_naam}"
+            rij += 1
+
+        rij += 1  # Extra lege regel
+
+    # ========================================================================
+    # SECTIE 2: AGGREGATIE MELDINGEN (v1.3 Fase 4a)
+    # ========================================================================
+    # Toon alleen als er warnings zijn
+
+    alle_warnings = []
+    if aggregatie_systeem is not None and aggregatie_systeem.warnings:
+        alle_warnings.extend(aggregatie_systeem.warnings)
+    if aggregatie_leverancier is not None and aggregatie_leverancier.warnings:
+        alle_warnings.extend(aggregatie_leverancier.warnings)
+
+    if alle_warnings:
+        worksheet[f'A{rij}'] = '⚠️ AGGREGATIE MELDINGEN'
+        worksheet[f'A{rij}'].font = Font(bold=True, size=12)
+        rij += 1
+
+        for warning in alle_warnings:
+            worksheet[f'A{rij}'] = f"  • {warning}"
+            # Lichte gele achtergrond voor waarschuwingen (niet-blokkerend)
+            worksheet[f'A{rij}'].fill = _get_fill_color('yellow')
+            rij += 1
+
+        rij += 1  # Extra lege regel
+
+    # ========================================================================
+    # SECTIE 3: VERGELIJKINGSRESULTAAT (bestaande functionaliteit)
+    # ========================================================================
+
+    worksheet[f'A{rij}'] = '🔍 VERGELIJKINGSRESULTAAT'
+    worksheet[f'A{rij}'].font = Font(bold=True, size=12)
+    rij += 1
+
     # Totaal regels
-    worksheet['A3'] = 'Totaal regels verwerkt:'
-    worksheet['B3'] = samenvatting['totaal_regels']
-    worksheet['A3'].font = Font(bold=True)
-    
-    # Status breakdown
-    worksheet['A5'] = 'Status'
-    worksheet['B5'] = 'Aantal'
-    worksheet['A5'].font = Font(bold=True)
-    worksheet['B5'].font = Font(bold=True)
-    
+    worksheet[f'A{rij}'] = 'Totaal regels vergeleken:'
+    worksheet[f'B{rij}'] = samenvatting['totaal_regels']
+    worksheet[f'A{rij}'].font = Font(bold=True)
+    rij += 1
+
+    rij += 1  # Lege regel voor scheiding
+
+    # Status breakdown (header)
+    worksheet[f'A{rij}'] = 'Status'
+    worksheet[f'B{rij}'] = 'Aantal'
+    worksheet[f'A{rij}'].font = Font(bold=True)
+    worksheet[f'B{rij}'].font = Font(bold=True)
+    rij += 1
+
     status_counts = samenvatting['status_counts']
-    
-    rij = 6
+
     status_mapping = [
         (config.STATUS_OK, '✅ OK', 'green'),
         (config.STATUS_AFWIJKING, '⚠️ Afwijking', 'orange'),
-        (config.STATUS_ONTBREEKT_FACTUUR, '❌ Ontbreekt op factuur', 'red'),
-        (config.STATUS_ONTBREEKT_SYSTEEM, '❌ Ontbreekt in systeem', 'red'),
+        (config.STATUS_ONTBREEKT_FACTUUR, '❌ Alleen in systeem', 'red'),
+        (config.STATUS_ONTBREEKT_SYSTEEM, '❌ Alleen in leverancier factuur', 'red'),
         (config.STATUS_GEDEELTELIJK, '⚡ Gedeeltelijk', 'yellow'),
         (config.STATUS_FOUT, '⛔ Fout', 'gray')
     ]
-    
+
     for status_key, status_label, kleur in status_mapping:
         worksheet[f'A{rij}'] = status_label
         worksheet[f'B{rij}'] = status_counts.get(status_key, 0)
-        
+
         # Kleurcodering
         fill_color = _get_fill_color(kleur)
         worksheet[f'A{rij}'].fill = fill_color
-        
+
         rij += 1
-    
+
     # Kolombreedte aanpassen
-    worksheet.column_dimensions['A'].width = 30
-    worksheet.column_dimensions['B'].width = 15
+    worksheet.column_dimensions['A'].width = 50  # Breder voor lange meldingen
+    worksheet.column_dimensions['B'].width = 30
 
 
 def _schrijf_details_sheet(worksheet, df_resultaat: pd.DataFrame):
