@@ -40,6 +40,8 @@ from modules.pdf_converter import (
     PDFValidatieError
 )
 from modules.pdf_classifier import classificeer_pdf
+from modules.document_classifier import classificeer_document
+from modules.aggregator import aggregeer_documenten, AggregatieResultaat
 import config
 
 
@@ -281,21 +283,197 @@ def verwerk_bestand(uploaded_file, bestandstype_label: str):
             tmp_pad.unlink()
 
 
+def verwerk_document_groep(bestanden, groep_naam: str) -> AggregatieResultaat:
+    """
+    Verwerkt meerdere documenten en aggregeert ze tot één overzicht.
+
+    Parameters
+    ----------
+    bestanden : list[UploadedFile]
+        Lijst van geüploade bestanden (Streamlit file_uploader).
+    groep_naam : str
+        Naam van de groep voor logging ("systeem" of "leverancier").
+
+    Returns
+    -------
+    AggregatieResultaat
+        Geaggregeerd resultaat met df_aggregaat, metadata en warnings.
+
+    Raises
+    ------
+    Exception
+        Als geen enkel document succesvol kon worden verwerkt.
+    """
+
+    if not bestanden:
+        st.error(f"❌ Geen {groep_naam}documenten geüpload")
+        st.stop()
+
+    st.info(f"📦 **{len(bestanden)} {groep_naam}document(en)** wordt(en) verwerkt...")
+
+    # Verzamel verwerkte documenten
+    df_list = []
+    document_namen = []
+    document_rollen = []
+    verwerkte_documenten_info = []
+
+    # Verwerk elk bestand
+    for idx, uploaded_file in enumerate(bestanden, start=1):
+        bestandsnaam = uploaded_file.name
+        bestandsextensie = Path(bestandsnaam).suffix.lower()
+
+        st.write(f"**{idx}. {bestandsnaam}**")
+
+        # Sla bestand tijdelijk op voor classificatie
+        with tempfile.NamedTemporaryFile(delete=False, suffix=bestandsextensie) as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_pad = Path(tmp.name)
+
+        try:
+            # Stap 1: Classificeer document
+            with st.spinner(f'  → Classificeren...'):
+                classificatie = classificeer_document(tmp_pad)
+
+            # Stap 2: Toon classificatie feedback (POSITIEF, geen angst-woorden)
+            if classificatie.type == 'gescand':
+                st.warning(f"  ⚠️ Gescande PDF — overgeslagen (vraag digitale versie aan)")
+                continue
+
+            elif classificatie.type == 'text_geen_template':
+                st.info(f"  ℹ️ PDF zonder ondersteund template — gebruik bij voorkeur CSV/Excel")
+                continue
+
+            elif classificatie.type == 'geen_artikelregels':
+                st.warning(f"  ⚠️ Geen artikeltabel gevonden — overgeslagen")
+                continue
+
+            elif classificatie.type == 'template_herkend':
+                # PDF met template: toon leverancier + rol
+                if classificatie.rol == 'pakbon':
+                    if classificatie.heeft_totaalbedrag:
+                        st.success(f"  ✅ Pakbon herkend ({classificatie.leverancier})")
+                    else:
+                        st.success(f"  ✅ Pakbon herkend ({classificatie.leverancier}) — totalen volgen via factuur")
+                elif classificatie.rol == 'factuur':
+                    st.success(f"  ✅ Factuur herkend ({classificatie.leverancier}) — klaar voor vergelijking")
+                else:
+                    st.success(f"  ✅ Document verwerkt ({classificatie.leverancier})")
+
+            else:
+                # CSV/Excel
+                if classificatie.rol == 'pakbon':
+                    st.success(f"  ✅ Pakbon herkend")
+                elif classificatie.rol == 'factuur':
+                    st.success(f"  ✅ Factuur herkend — klaar voor vergelijking")
+                else:
+                    st.success(f"  ✅ Document verwerkt")
+
+            # Stap 3: Verwerk document (reader → validator → normalizer)
+            with st.spinner(f'  → Verwerken...'):
+                df = verwerk_bestand(uploaded_file, groep_naam)
+
+                # Normaliseer (als nog niet gebeurd in verwerk_bestand voor PDF)
+                df_norm = normaliseer_dataframe(df, groep_naam)
+
+                # Valideer genormaliseerde data
+                is_valid, fouten = valideer_dataframe(df_norm, groep_naam)
+
+                if not is_valid:
+                    st.warning(f"  ⚠️ Document heeft missende gegevens — overgeslagen")
+                    for fout in fouten:
+                        st.caption(f"     • {fout}")
+                    continue
+
+                # Document succesvol verwerkt
+                df_list.append(df_norm)
+                document_namen.append(bestandsnaam)
+                document_rollen.append(classificatie.rol)
+
+                verwerkte_documenten_info.append({
+                    'naam': bestandsnaam,
+                    'rol': classificatie.rol,
+                    'aantal_regels': len(df_norm)
+                })
+
+                st.success(f"  ✅ **{len(df_norm)} artikelregels** geëxtraheerd")
+
+        except Exception as e:
+            st.warning(f"  ⚠️ Document kon niet worden verwerkt: {str(e)}")
+            st.session_state.logger.warning(f"Fout bij verwerken {bestandsnaam}: {str(e)}")
+            continue
+
+        finally:
+            # Ruim tijdelijk bestand op
+            if tmp_pad.exists():
+                tmp_pad.unlink()
+
+    # Check of er geldige documenten zijn
+    if not df_list:
+        st.error(f"❌ **Geen geldige {groep_naam}documenten**")
+        st.info("""
+        💡 **Wat kunt u doen?**
+        • Controleer of de documenten artikelregels bevatten
+        • Gebruik CSV of Excel formaat voor beste resultaten
+        • Zorg dat PDF's niet gescand zijn (digitale versie nodig)
+        """)
+        st.stop()
+
+    # Stap 4: Aggregeer documenten
+    st.divider()
+    st.write(f"**📊 Aggregatie {groep_naam}documenten**")
+
+    with st.spinner('Documenten worden samengevoegd...'):
+        try:
+            result = aggregeer_documenten(
+                df_list=df_list,
+                document_namen=document_namen,
+                document_rollen=document_rollen
+            )
+        except Exception as e:
+            st.error(f"❌ Fout bij aggregeren: {str(e)}")
+            st.session_state.logger.error(f"Aggregatie fout ({groep_naam}): {str(e)}")
+            st.stop()
+
+    # Stap 5: Toon aggregatie samenvatting
+    totaal_input = result.metadata['totaal_regels_input']
+    totaal_output = result.metadata['totaal_regels_output']
+    aantal_docs = result.metadata['aantal_documenten_verwerkt']
+
+    st.success(f"✅ **{aantal_docs} document(en) samengevoegd tot {totaal_output} unieke artikelen**")
+    st.caption(f"   ({totaal_input} regels → {totaal_output} unieke artikelen)")
+
+    # Toon warnings (prijsverschillen, etc.)
+    if result.warnings:
+        with st.expander(f"⚠️ {len(result.warnings)} waarschuwing(en) — niet-blokkerend"):
+            for warning in result.warnings:
+                st.caption(f"• {warning}")
+
+    # Toon details in expander
+    with st.expander("📋 Documentdetails"):
+        for info in verwerkte_documenten_info:
+            rol_emoji = "📦" if info['rol'] == 'pakbon' else "📄" if info['rol'] == 'factuur' else "📋"
+            st.caption(f"{rol_emoji} **{info['naam']}** — {info['rol']} — {info['aantal_regels']} regels")
+
+    st.divider()
+
+    return result
+
+
 # ============================================================================
 # HEADER
 # ============================================================================
 
 st.title("📊 Factuurvergelijker")
 st.markdown("""
-Vergelijk uw systeemexport met de leveranciersfactuur om automatisch afwijkingen te detecteren.
+Vergelijk uw systeemdocumenten met leveranciersdocumenten om automatisch afwijkingen te detecteren.
 
 **Hoe werkt het?**
-1. Upload uw systeemexport (CSV, Excel, of PDF)
-2. Upload de leveranciersfactuur (CSV, Excel, of PDF)
+1. Upload één of meerdere systeemdocumenten (pakbonnen, exports)
+2. Upload één of meerdere leveranciersdocumenten (facturen)
 3. Klik op "Vergelijk facturen"
 4. Download het Excel-rapport met de resultaten
 
-**✨ Nieuw in v1.2:** PDF-ondersteuning voor Bosal, Fource en intern systeem!
+**✨ Nieuw in v1.3:** Multi-document vergelijking! Upload meerdere pakbonnen + facturen tegelijk.
 """)
 
 st.divider()
@@ -310,22 +488,28 @@ st.subheader("📤 Stap 1: Upload bestanden")
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("**Systeemexport**")
-    bestand_systeem = st.file_uploader(
-        "Upload uw systeemexport",
+    st.markdown("**📦 Systeem Documenten**")
+    bestanden_systeem = st.file_uploader(
+        "Upload één of meerdere documenten",
         type=['csv', 'xlsx', 'xls', 'pdf'],
         key='systeem',
-        help="CSV, Excel, of PDF uit uw eigen systeem"
+        accept_multiple_files=True,
+        help="Pakbonnen, exports uit uw eigen systeem (CSV, Excel, PDF)"
     )
+    if bestanden_systeem:
+        st.caption(f"✅ {len(bestanden_systeem)} document(en) geselecteerd")
 
 with col2:
-    st.markdown("**Leveranciersfactuur**")
-    bestand_factuur = st.file_uploader(
-        "Upload de leveranciersfactuur",
+    st.markdown("**📄 Leverancier Documenten**")
+    bestanden_factuur = st.file_uploader(
+        "Upload één of meerdere documenten",
         type=['csv', 'xlsx', 'xls', 'pdf'],
         key='factuur',
-        help="CSV, Excel, of PDF van de leverancier (Bosal, Fource)"
+        accept_multiple_files=True,
+        help="Facturen van leverancier (CSV, Excel, PDF)"
     )
+    if bestanden_factuur:
+        st.caption(f"✅ {len(bestanden_factuur)} document(en) geselecteerd")
 
 st.divider()
 
@@ -336,18 +520,21 @@ st.divider()
 
 st.subheader("⚡ Stap 2: Vergelijk")
 
-# Check of beide bestanden aanwezig zijn
-beide_bestanden_aanwezig = bestand_systeem is not None and bestand_factuur is not None
+# Check of beide kanten documenten hebben
+beide_kanten_aanwezig = (
+    bestanden_systeem is not None and len(bestanden_systeem) > 0 and
+    bestanden_factuur is not None and len(bestanden_factuur) > 0
+)
 
-if beide_bestanden_aanwezig:
-    st.success("✅ Beide bestanden zijn geüpload en klaar voor vergelijking")
+if beide_kanten_aanwezig:
+    st.success(f"✅ Beide kanten hebben documenten ({len(bestanden_systeem)} systeem, {len(bestanden_factuur)} leverancier)")
 else:
-    st.warning("⚠️ Upload eerst beide bestanden voordat u kunt vergelijken")
+    st.warning("⚠️ Upload eerst documenten aan beide kanten voordat u kunt vergelijken")
 
 # Vergelijkingsknop
 vergelijk_knop = st.button(
-    "🔍 Vergelijk facturen",
-    disabled=not beide_bestanden_aanwezig,
+    "🔍 Vergelijk documenten",
+    disabled=not beide_kanten_aanwezig,
     type="primary",
     use_container_width=True
 )
@@ -362,88 +549,66 @@ if vergelijk_knop:
     try:
         start_tijd = time.time()
 
-        # Verwerk bestanden (CSV, Excel, of PDF)
-        with st.spinner('Bestanden worden verwerkt...'):
-            df_systeem_ruw = verwerk_bestand(bestand_systeem, "systeemexport")
-            df_factuur_ruw = verwerk_bestand(bestand_factuur, "leveranciersfactuur")
-        
+        st.divider()
+        st.subheader("🔄 Verwerking")
+
         # ====================================================================
-        # SYSTEEMEXPORT: Valideer VOOR normalisatie
-        # (Systeemexport heeft al correcte kolomnamen)
+        # STAP 1: VERWERK SYSTEEM DOCUMENTEN
         # ====================================================================
-        with st.spinner('Systeemexport wordt gecontroleerd...'):
-            is_valid_sys, fouten_sys = valideer_dataframe(df_systeem_ruw, "systeemexport")
-            if not is_valid_sys:
-                st.error("❌ **Fout in systeemexport:**")
-                st.error("Het systeembestand bevat niet alle verplichte kolommen of heeft ongeldige data.")
-                for fout in fouten_sys:
-                    st.error(f"- {fout}")
-                st.info("💡 **Verwachte kolommen:** artikelnaam, aantal, prijs_per_stuk, totaal")
-                st.stop()
-            
-            # Normaliseer systeemexport
-            df_systeem_norm = normaliseer_dataframe(df_systeem_ruw, "systeemexport")
-        
+        st.markdown("### 📦 Systeem Documenten")
+        result_systeem = verwerk_document_groep(bestanden_systeem, "systeem")
+
         # ====================================================================
-        # LEVERANCIERSFACTUUR: Normaliseer VOOR validatie
-        # (Leverancier gebruikt mogelijk andere kolomnamen zoals "qty", "price")
+        # STAP 2: VERWERK LEVERANCIER DOCUMENTEN
         # ====================================================================
-        with st.spinner('Leveranciersfactuur wordt verwerkt...'):
-            # EERST normaliseren (kolommen mappen naar standaard)
-            df_factuur_norm = normaliseer_dataframe(df_factuur_ruw, "leveranciersfactuur")
-            
-            # PAS DAARNA valideren (nu zijn kolommen al correct)
-            is_valid_fac, fouten_fac = valideer_dataframe(df_factuur_norm, "leveranciersfactuur")
-            if not is_valid_fac:
-                st.error("❌ **Fout in leveranciersfactuur:**")
-                st.error("De leveranciersfactuur bevat niet alle verplichte gegevens of heeft ongeldige data.")
-                for fout in fouten_fac:
-                    st.error(f"- {fout}")
-                st.info("💡 **Tip:** Controleer of de factuur kolommen bevat voor artikelnaam, aantal, prijs en totaalbedrag.")
-                st.stop()
-        
-        # Log start (nu pas, na succesvolle validatie)
+        st.markdown("### 📄 Leverancier Documenten")
+        result_leverancier = verwerk_document_groep(bestanden_factuur, "leverancier")
+
+        # ====================================================================
+        # STAP 3: VERGELIJKING
+        # ====================================================================
+        st.markdown("### 🔍 Vergelijking")
+
+        # Log start
+        systeem_namen = ", ".join(result_systeem.metadata['document_namen'])
+        leverancier_namen = ", ".join(result_leverancier.metadata['document_namen'])
+
         log_vergelijking_start(
             st.session_state.logger,
-            bestand_systeem.name,
-            bestand_factuur.name,
-            len(df_systeem_norm),
-            len(df_factuur_norm)
+            systeem_namen,
+            leverancier_namen,
+            len(result_systeem.df_aggregaat),
+            len(result_leverancier.df_aggregaat)
         )
-        
-        # Vergelijking
-        with st.spinner('Facturen worden vergeleken...'):
-            df_resultaat = vergelijk_facturen(df_systeem_norm, df_factuur_norm)
+
+        # Voer vergelijking uit op geaggregeerde data
+        with st.spinner('Geaggregeerde documenten worden vergeleken...'):
+            df_resultaat = vergelijk_facturen(
+                result_systeem.df_aggregaat,
+                result_leverancier.df_aggregaat
+            )
             samenvatting = genereer_samenvatting(df_resultaat)
 
-            # ✨ DEBUG: Controleer aantal rijen
-            import sys
-            debug_msg = f"🔍 APP.PY: Vergelijking compleet - {len(df_resultaat)} rijen in resultaat\n"
-            debug_msg += f"   Shape: {df_resultaat.shape}\n"
-            with open('/tmp/excel_debug.log', 'a') as f:
-                f.write(debug_msg)
-            sys.stdout.write(debug_msg)
-            sys.stdout.flush()
+        st.success(f"✅ **Vergelijking voltooid** — {len(df_resultaat)} artikelen vergeleken")
 
-        # Excel genereren - FIX VOOR STREAMLIT CLOUD
+        # ====================================================================
+        # STAP 4: EXCEL RAPPORT
+        # ====================================================================
         with st.spinner('Excel-rapport wordt gegenereerd...'):
             output_dir = Path(tempfile.gettempdir()) / 'factuurvergelijker_output'
             output_dir.mkdir(exist_ok=True)
 
-            # ✨ DEBUG: Bevestig dat volledige DataFrame wordt doorgegeven
-            debug_msg = f"📤 APP.PY: Stuur {len(df_resultaat)} rijen naar exporteer_naar_excel()\n"
-            with open('/tmp/excel_debug.log', 'a') as f:
-                f.write(debug_msg)
-            sys.stdout.write(debug_msg)
-            sys.stdout.flush()
+            # Gebruik eerste bestandsnaam per kant voor Excel naam
+            systeem_naam = result_systeem.metadata['document_namen'][0].replace('.pdf', '').replace('.csv', '')
+            leverancier_naam = result_leverancier.metadata['document_namen'][0].replace('.pdf', '').replace('.csv', '')
 
             excel_pad = exporteer_naar_excel(
                 df_resultaat,
                 output_dir,
-                bestand_systeem.name.replace('.csv', ''),
-                bestand_factuur.name.replace('.csv', '')
+                systeem_naam,
+                leverancier_naam
             )
-        
+
         # Log resultaat
         verwerkingstijd = time.time() - start_tijd
         log_vergelijking_resultaat(
@@ -452,25 +617,28 @@ if vergelijk_knop:
             verwerkingstijd,
             excel_pad
         )
-        
+
         # Opslaan in session state voor weergave
         st.session_state.resultaat = df_resultaat
         st.session_state.samenvatting = samenvatting
         st.session_state.excel_pad = excel_pad
         st.session_state.verwerkingstijd = verwerkingstijd
-        
-        st.success(f"✅ **Vergelijking voltooid in {verwerkingstijd:.1f} seconden!**")
-        
+        st.session_state.aggregatie_systeem = result_systeem
+        st.session_state.aggregatie_leverancier = result_leverancier
+
+        st.success(f"✅ **Volledige verwerking voltooid in {verwerkingstijd:.1f} seconden!**")
+
     except FileNotFoundError as e:
         st.error(f"❌ **Bestand niet gevonden:** {e}")
-        
+
     except ValueError as e:
         st.error(f"❌ **Ongeldige data:** {e}")
-        st.info("💡 Controleer of uw CSV-bestanden de juiste kolommen bevatten.")
-        
+        st.info("💡 Controleer of uw bestanden de juiste kolommen bevatten.")
+
     except Exception as e:
         st.error(f"❌ **Er is een onverwachte fout opgetreden:** {e}")
         st.info("💡 Neem contact op met de systeembeheerder als dit probleem aanhoudt.")
+        st.session_state.logger.error(f"Onverwachte fout tijdens vergelijking: {str(e)}")
 
 
 # ============================================================================
@@ -478,12 +646,32 @@ if vergelijk_knop:
 # ============================================================================
 
 if 'resultaat' in st.session_state:
-    
+
     st.divider()
     st.subheader("📊 Stap 3: Resultaten")
-    
+
+    # AGGREGATIE INFORMATIE (indien beschikbaar)
+    if 'aggregatie_systeem' in st.session_state and 'aggregatie_leverancier' in st.session_state:
+        st.markdown("### 📋 Verwerkte Documenten")
+
+        col_sys, col_lev = st.columns(2)
+
+        with col_sys:
+            agg_sys = st.session_state.aggregatie_systeem
+            st.info(f"""
+            **📦 Systeem:** {agg_sys.metadata['aantal_documenten_verwerkt']} document(en)
+            - {agg_sys.metadata['totaal_regels_input']} regels → {agg_sys.metadata['totaal_regels_output']} unieke artikelen
+            """)
+
+        with col_lev:
+            agg_lev = st.session_state.aggregatie_leverancier
+            st.info(f"""
+            **📄 Leverancier:** {agg_lev.metadata['aantal_documenten_verwerkt']} document(en)
+            - {agg_lev.metadata['totaal_regels_input']} regels → {agg_lev.metadata['totaal_regels_output']} unieke artikelen
+            """)
+
     # SAMENVATTING
-    st.markdown("### 📈 Samenvatting")
+    st.markdown("### 📈 Vergelijkingsresultaat")
     
     samenvatting = st.session_state.samenvatting
     status_counts = samenvatting['status_counts']
@@ -611,7 +799,8 @@ if 'resultaat' in st.session_state:
 st.divider()
 st.markdown("""
 <div style='text-align: center; color: gray; font-size: 0.9em;'>
-    <p>Factuurvergelijker v1.0 | Gebouwd met Streamlit</p>
+    <p>Factuurvergelijker v1.3 | Gebouwd met Streamlit</p>
+    <p>✨ Multi-document vergelijking • PDF ondersteuning • Automatische aggregatie</p>
     <p>Alle vergelijkingen worden automatisch gelogd voor audit-doeleinden</p>
 </div>
 """, unsafe_allow_html=True)
